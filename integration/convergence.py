@@ -41,8 +41,8 @@ from dataclasses import dataclass
 
 import torch
 
-from torch_poisson.boundary import Dirichlet, Neumann, Periodic
-from torch_poisson.uniform_grid_solver import UniformGridSolver
+from orthel.boundary import Dirichlet, Neumann, Periodic
+from orthel.uniform_grid_solver import UniformGridSolver
 
 DTYPE = torch.float64
 

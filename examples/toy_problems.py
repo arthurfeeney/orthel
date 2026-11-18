@@ -12,8 +12,8 @@ import argparse
 import matplotlib.pyplot as plt
 import torch
 
-from torch_poisson.boundary import Dirichlet, Neumann, Periodic
-from torch_poisson.uniform_grid_solver import UniformGridSolver
+from orthel.boundary import Dirichlet, Neumann, Periodic
+from orthel.uniform_grid_solver import UniformGridSolver
 
 SHAPE = (128, 128)
 LENGTHS = (1.0, 1.0)

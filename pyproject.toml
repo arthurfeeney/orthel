@@ -1,7 +1,7 @@
 [project]
-name = "torch-poisson"
+name = "orthel"
 version = "0.1.0"
-description = "Add your description here"
+description = "A pytorch utility library with orthogonal transform and elliptic PDE solvers"
 readme = "README.md"
 authors = [
     { name = "Arthur Feeney", email = "afeeney@uci.edu" }

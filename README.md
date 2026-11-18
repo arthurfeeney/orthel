@@ -1,4 +1,4 @@
-# torch-poisson
+# orthel
 
 This is a utility library to solve n-dimensional PDEs of the form
 

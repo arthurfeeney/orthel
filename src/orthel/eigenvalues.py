@@ -26,7 +26,7 @@ def second_difference_eigenvalues(
     They are ordered to match the transform that diagonalises the operator:
     ``torch.fft.fft`` on periodic axes (``torch.fft.rfft`` if
     ``half_spectrum``), and the matching DCT/DST in
-    :mod:`torch_poisson.transforms` on wall axes.
+    :mod:`orthel.transforms` on wall axes.
     """
     if bc == ("periodic", "periodic"):
         freq = torch.fft.rfftfreq if half_spectrum else torch.fft.fftfreq

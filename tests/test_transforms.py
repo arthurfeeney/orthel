@@ -4,7 +4,7 @@ import pytest
 import scipy.fft
 import torch
 
-from torch_poisson.transforms import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
+from orthel.transforms import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
 
 # (forward, inverse, scipy function, scipy type). SciPy's unnormalised
 # transforms carry an extra factor of 2 relative to the definitions here.

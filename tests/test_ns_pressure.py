@@ -19,9 +19,9 @@ import math
 import pytest
 import torch
 
-from torch_poisson.boundary import Dirichlet, Neumann, Periodic
-from torch_poisson.eigenvalues import second_difference_eigenvalues
-from torch_poisson.uniform_grid_solver import UniformGridSolver
+from orthel.boundary import Dirichlet, Neumann, Periodic
+from orthel.eigenvalues import second_difference_eigenvalues
+from orthel.uniform_grid_solver import UniformGridSolver
 
 CASES = [
     ((32, 24), (1.0, 1.5), (Periodic(), Periodic())),

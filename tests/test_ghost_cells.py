@@ -4,8 +4,8 @@ import math
 import pytest
 import torch
 
-from torch_poisson.boundary import Dirichlet, Neumann, Periodic
-from torch_poisson.uniform_grid_solver import UniformGridSolver
+from orthel.boundary import Dirichlet, Neumann, Periodic
+from orthel.uniform_grid_solver import UniformGridSolver
 from test_uniform_grid_solver import CASES, OPERATORS, apply_operator, random_bc
 
 WALL_TYPES = [Neumann(), Dirichlet(), (Neumann(), Dirichlet()), (Dirichlet(), Neumann())]

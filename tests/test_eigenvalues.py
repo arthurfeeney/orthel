@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from torch_poisson.eigenvalues import second_difference_eigenvalues
-from torch_poisson.transforms import idct2, idct4, idst2, idst4
+from orthel.eigenvalues import second_difference_eigenvalues
+from orthel.transforms import idct2, idct4, idst2, idst4
 
 # (low, high) wall types -> inverse transform, whose columns applied to the
 # identity are the eigenvectors in the order the eigenvalues are returned.
