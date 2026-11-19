@@ -25,4 +25,5 @@ examples = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["python/tests"]
+addopts = ["--ignore=python/tests/integration"]

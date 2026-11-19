@@ -31,8 +31,8 @@ uv sync
 ## Test
 
 ```sh
-uv run pytest tests/  # unit tests
-uv run integration/convergence.py  # check grid convergence for common problems / boundary conditions.
+uv run pytest python/tests/  # unit tests; python/tests/integration is excluded from collection
+uv run python python/tests/integration/convergence.py  # grid-convergence studies
 ```
 
 ## Accuracy

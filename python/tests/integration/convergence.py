@@ -25,9 +25,9 @@ All are second order, with two known exceptions:
 
 Run from the project root (these are not collected by pytest):
 
-    uv run python integration/convergence.py            # all studies
-    uv run python integration/convergence.py --quick    # fewer refinements
-    uv run python integration/convergence.py -k 2d      # studies whose name contains "2d"
+    uv run python python/tests/integration/convergence.py            # all studies
+    uv run python python/tests/integration/convergence.py --quick    # fewer refinements
+    uv run python python/tests/integration/convergence.py -k 2d      # studies whose name contains "2d"
 
 The exit status is 1 if any observed rate is below its expected rate minus
 ``--slack``.
