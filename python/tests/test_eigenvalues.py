@@ -1,8 +1,7 @@
 import pytest
 import torch
-
 from orthel.eigenvalues import second_difference_eigenvalues
-from orthel.transforms import idct2, idct4, idst2, idst4
+from orthel.transforms.dct import idct2, idct4, idst2, idst4
 
 # (low, high) wall types -> inverse transform, whose columns applied to the
 # identity are the eigenvectors in the order the eigenvalues are returned.
@@ -36,7 +35,9 @@ def test_wall_eigenpairs_match_transform(bc, n):
     lam = second_difference_eigenvalues(n, h, bc)
     vectors = WALL_INVERSES[bc](torch.eye(n, dtype=torch.float64), dim=0)
 
-    torch.testing.assert_close(second_difference_matrix(n, h, bc) @ vectors, vectors * lam)
+    torch.testing.assert_close(
+        second_difference_matrix(n, h, bc) @ vectors, vectors * lam
+    )
 
 
 @pytest.mark.parametrize("n", SIZES)
@@ -70,14 +71,18 @@ def test_eigenvalues_are_spectrum_of_matrix(bc):
 
 
 def test_dtype_and_device():
-    lam = second_difference_eigenvalues(6, 0.5, ("neumann", "neumann"), dtype=torch.float32)
+    lam = second_difference_eigenvalues(
+        6, 0.5, ("neumann", "neumann"), dtype=torch.float32
+    )
 
     assert lam.dtype == torch.float32 and lam.device.type == "cpu"
 
 
 def test_half_spectrum_rejected_for_walls():
     with pytest.raises(ValueError, match="periodic"):
-        second_difference_eigenvalues(6, 0.5, ("neumann", "dirichlet"), half_spectrum=True)
+        second_difference_eigenvalues(
+            6, 0.5, ("neumann", "dirichlet"), half_spectrum=True
+        )
 
 
 @pytest.mark.parametrize("bc", [("periodic", "neumann"), ("robin", "robin")])

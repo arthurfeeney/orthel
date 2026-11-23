@@ -26,7 +26,7 @@ def second_difference_eigenvalues(
     They are ordered to match the transform that diagonalises the operator:
     ``torch.fft.fft`` on periodic axes (``torch.fft.rfft`` if
     ``half_spectrum``), and the matching DCT/DST in
-    :mod:`orthel.transforms` on wall axes.
+    :mod:`orthel.transforms.dct` on wall axes.
     """
     if bc == ("periodic", "periodic"):
         freq = torch.fft.rfftfreq if half_spectrum else torch.fft.fftfreq
@@ -41,4 +41,4 @@ def second_difference_eigenvalues(
         theta = math.pi * (torch.arange(n, dtype=dtype, device=device) + offset) / n
     else:
         raise ValueError(f"unsupported boundary types {bc!r}")
-    return -((2 / spacing) * torch.sin(theta / 2)) ** 2
+    return -(((2 / spacing) * torch.sin(theta / 2)) ** 2)

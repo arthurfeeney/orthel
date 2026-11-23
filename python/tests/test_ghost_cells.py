@@ -3,18 +3,24 @@ import math
 
 import pytest
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic
 from orthel.uniform_grid_solver import UniformGridSolver
 from test_uniform_grid_solver import CASES, OPERATORS, apply_operator, random_bc
 
-WALL_TYPES = [Neumann(), Dirichlet(), (Neumann(), Dirichlet()), (Dirichlet(), Neumann())]
+WALL_TYPES = [
+    Neumann(),
+    Dirichlet(),
+    (Neumann(), Dirichlet()),
+    (Dirichlet(), Neumann()),
+]
 GHOSTS = ["standard", "pde"]
 DTYPES = [torch.float64, torch.float32]
 
 
 def _bc_id(bc):
-    return "-".join("/".join(s.kind for s in b) if isinstance(b, tuple) else b.kind for b in bc)
+    return "-".join(
+        "/".join(s.kind for s in b) if isinstance(b, tuple) else b.kind for b in bc
+    )
 
 
 def _case_id(case):
@@ -29,12 +35,17 @@ def apply_with_ghosts(solver, u, ghosts):
         dim, n, h = u.ndim - ndim + axis, solver.shape[axis], solver.spacings[axis]
         padded = torch.cat([ghosts[axis][0], u, ghosts[axis][1]], dim=dim)
         a = solver.coefficients[axis]
-        out = out + a * (padded.narrow(dim, 0, n) - 2 * u + padded.narrow(dim, 2, n)) / h**2
+        out = (
+            out
+            + a * (padded.narrow(dim, 0, n) - 2 * u + padded.narrow(dim, 2, n)) / h**2
+        )
     return out
 
 
 def has_null_mode(solver):
-    return solver.shift == 0 and not any("dirichlet" in b for b in solver.boundary_types)
+    return solver.shift == 0 and not any(
+        "dirichlet" in b for b in solver.boundary_types
+    )
 
 
 def remove_mean(solver, x):
@@ -92,7 +103,9 @@ def test_solution_satisfies_stencil_with_its_ghost_cells(operator_case, ghost, d
     residual = f - apply_with_ghosts(solver, u, solver.ghost_cells(u, f, boundaries))
     if has_null_mode(solver):
         residual = remove_mean(solver, residual)
-    norm_a = sum(4 * a / h**2 for a, h in zip(solver.coefficients, solver.spacings)) + abs(shift)
+    norm_a = sum(
+        4 * a / h**2 for a, h in zip(solver.coefficients, solver.spacings)
+    ) + abs(shift)
     eta = residual.abs().max() / (norm_a * u.abs().max() + (f - known).abs().max())
     tolerance = 10 * torch.finfo(dtype).eps
     assert eta <= tolerance, f"backward error {eta:.2e}"
@@ -117,7 +130,9 @@ def exact_bc(solver, solution, gradient):
         pair = []
         for side, kind in enumerate(sides):
             face = list(xs)
-            face[axis] = torch.tensor([0.0 if side == 0 else solver.lengths[axis]], dtype=torch.float64)
+            face[axis] = torch.tensor(
+                [0.0 if side == 0 else solver.lengths[axis]], dtype=torch.float64
+            )
             x, y = torch.meshgrid(*face, indexing="ij")
             if kind == "dirichlet":
                 pair.append(Dirichlet(solution(x, y).squeeze(axis)))
@@ -129,14 +144,18 @@ def exact_bc(solver, solution, gradient):
 
 
 @pytest.mark.parametrize("ghost", GHOSTS)
-@pytest.mark.parametrize("bc", list(itertools.product(WALL_TYPES, repeat=2)), ids=_bc_id)
+@pytest.mark.parametrize(
+    "bc", list(itertools.product(WALL_TYPES, repeat=2)), ids=_bc_id
+)
 def test_quadratic_solution(bc, ghost):
     # With a constant f, the "pde" ghost cells are exact for a quadratic, so the
     # discrete solution matches it to rounding. The standard Dirichlet ghost is
     # off by (h²/4) ∂²u/∂n²; the standard Neumann ghost is exact here because
     # ∂³u/∂n³ = 0.
     coefficients = (2.0, 0.5)
-    solver = UniformGridSolver((24, 18), (1.0, 1.5), bc, coefficients=coefficients, ghost_rule=ghost)
+    solver = UniformGridSolver(
+        (24, 18), (1.0, 1.5), bc, coefficients=coefficients, ghost_rule=ghost
+    )
     x, y = torch.meshgrid(*solver.coords(dtype=torch.float64), indexing="ij")
     expected = quadratic(x, y)
     f = torch.full_like(expected, coefficients[0] * 1.0 + coefficients[1] * 1.6)
@@ -150,7 +169,9 @@ def test_quadratic_solution(bc, ghost):
     if ghost == "pde" or not any("dirichlet" in b for b in solver.boundary_types):
         assert error <= 1e-11, f"max error {error:.2e}"
     else:
-        assert error > 1e-4, "standard Dirichlet ghost should not be exact for quadratics"
+        assert error > 1e-4, (
+            "standard Dirichlet ghost should not be exact for quadratics"
+        )
 
 
 def trig_solution(lengths, bc):
@@ -179,7 +200,12 @@ def trig_solution(lengths, bc):
 def solve_manufactured(bc, coefficients, shift, ghost, n):
     lengths = (1.0, 1.5)
     solver = UniformGridSolver(
-        (n, 3 * n // 2), lengths, bc, coefficients=coefficients, shift=shift, ghost_rule=ghost
+        (n, 3 * n // 2),
+        lengths,
+        bc,
+        coefficients=coefficients,
+        shift=shift,
+        ghost_rule=ghost,
     )
     solution, gradient, ks = trig_solution(lengths, solver.boundary_types)
     x, y = torch.meshgrid(*solver.coords(dtype=torch.float64), indexing="ij")
@@ -193,10 +219,14 @@ def solve_manufactured(bc, coefficients, shift, ghost, n):
     padded = torch.cat([low, u, high], dim=0)
     du = (padded[1:] - padded[:-1]) / solver.spacings[0]
     x_faces = torch.arange(n + 1, dtype=torch.float64) * solver.spacings[0]
-    xf, yf = torch.meshgrid(x_faces, solver.coords(dtype=torch.float64)[1], indexing="ij")
+    xf, yf = torch.meshgrid(
+        x_faces, solver.coords(dtype=torch.float64)[1], indexing="ij"
+    )
     if solver.boundary_types[0][0] == "periodic":
         du, xf, yf = du[:-1], xf[:-1], yf[:-1]
-    return (u - expected).abs().max().item(), (du - gradient(xf, yf)[0]).abs().max().item()
+    return (u - expected).abs().max().item(), (
+        du - gradient(xf, yf)[0]
+    ).abs().max().item()
 
 
 CONVERGENCE_CASES = [
@@ -215,13 +245,17 @@ def test_convergence_order(case, ghost):
     # The solution is second order with either rule. With "pde" ghost cells
     # the gradient is too, including across the walls and at the corners.
     bc, coefficients, shift = case
-    errors = [solve_manufactured(bc, coefficients, shift, ghost, n) for n in (32, 64, 128)]
+    errors = [
+        solve_manufactured(bc, coefficients, shift, ghost, n) for n in (32, 64, 128)
+    ]
     u_rates = [math.log2(a[0] / b[0]) for a, b in zip(errors, errors[1:])]
     du_rates = [math.log2(a[1] / b[1]) for a, b in zip(errors, errors[1:])]
 
     assert min(u_rates) > 1.9, f"solution rates {u_rates}"
     sides = [b if isinstance(b, tuple) else (b, b) for b in bc]
-    dirichlet_corner = all(any(isinstance(s, Dirichlet) for s in pair) for pair in sides)
+    dirichlet_corner = all(
+        any(isinstance(s, Dirichlet) for s in pair) for pair in sides
+    )
     if ghost == "standard" and dirichlet_corner:
         # Where two Dirichlet walls meet, the standard ghost cells' O(1)
         # truncation errors make the gradient first order.
@@ -233,20 +267,33 @@ def test_convergence_order(case, ghost):
 def test_pde_rule_matches_standard_without_walls():
     standard = UniformGridSolver((16, 12), 1.0, Periodic(), shift=-2.0)
     pde = UniformGridSolver((16, 12), 1.0, Periodic(), shift=-2.0, ghost_rule="pde")
-    f = torch.randn(16, 12, dtype=torch.float64, generator=torch.Generator().manual_seed(2))
+    f = torch.randn(
+        16, 12, dtype=torch.float64, generator=torch.Generator().manual_seed(2)
+    )
 
     torch.testing.assert_close(pde(f), standard(f), rtol=0, atol=0)
 
 
 @pytest.mark.parametrize(
-    "bc", [(Dirichlet(), (Neumann(), Dirichlet())), (Periodic(), Dirichlet()), (Neumann(), Periodic())], ids=_bc_id
+    "bc",
+    [
+        (Dirichlet(), (Neumann(), Dirichlet())),
+        (Periodic(), Dirichlet()),
+        (Neumann(), Periodic()),
+    ],
+    ids=_bc_id,
 )
 def test_pde_ghost_gradcheck(bc):
-    solver = UniformGridSolver((6, 5), (1.0, 1.5), bc, coefficients=(2.0, 0.5), shift=-3.0, ghost_rule="pde")
+    solver = UniformGridSolver(
+        (6, 5), (1.0, 1.5), bc, coefficients=(2.0, 0.5), shift=-3.0, ghost_rule="pde"
+    )
     generator = torch.Generator().manual_seed(3)
     f = torch.randn(6, 5, dtype=torch.float64, generator=generator, requires_grad=True)
-    walls = [(axis, pair) for axis, pair in enumerate(random_bc(solver, (), torch.float64, generator))
-             if isinstance(pair, tuple)]
+    walls = [
+        (axis, pair)
+        for axis, pair in enumerate(random_bc(solver, (), torch.float64, generator))
+        if isinstance(pair, tuple)
+    ]
     values = [side.value.requires_grad_() for _, pair in walls for side in pair]
 
     def solve(f, *values):

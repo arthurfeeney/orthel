@@ -18,7 +18,6 @@ import math
 
 import pytest
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic
 from orthel.eigenvalues import second_difference_eigenvalues
 from orthel.uniform_grid_solver import UniformGridSolver
@@ -37,7 +36,11 @@ CASES = [
 CLOSED_CASES = [
     case
     for case in CASES
-    if not any(isinstance(s, Dirichlet) for b in case[2] for s in (b if isinstance(b, tuple) else (b,)))
+    if not any(
+        isinstance(s, Dirichlet)
+        for b in case[2]
+        for s in (b if isinstance(b, tuple) else (b,))
+    )
 ]
 
 DTYPES = [torch.float64, torch.float32]
@@ -128,7 +131,9 @@ def operator_norm(solver):
 def smallest_nonzero_eigenvalue(solver):
     total = torch.zeros((), dtype=torch.float64)
     ndim = len(solver.shape)
-    for i, (n, h, bc) in enumerate(zip(solver.shape, solver.spacings, solver.boundary_types)):
+    for i, (n, h, bc) in enumerate(
+        zip(solver.shape, solver.spacings, solver.boundary_types)
+    ):
         view = [1] * ndim
         view[i] = -1
         total = total + second_difference_eigenvalues(n, h, bc).reshape(view)
@@ -162,8 +167,12 @@ def inner(a, b):
 
 def test_divergence_of_gradient_is_solver_laplacian():
     # D G must be the operator the solver inverts, so solving D G p = f recovers p.
-    solver = UniformGridSolver((32, 24), (1.0, 1.5), ((Neumann(), Dirichlet()), Periodic()))
-    p = torch.randn(32, 24, dtype=torch.float64, generator=torch.Generator().manual_seed(0))
+    solver = UniformGridSolver(
+        (32, 24), (1.0, 1.5), ((Neumann(), Dirichlet()), Periodic())
+    )
+    p = torch.randn(
+        32, 24, dtype=torch.float64, generator=torch.Generator().manual_seed(0)
+    )
 
     torch.testing.assert_close(solver(divergence(solver, gradient(solver, p))), p)
 
@@ -191,7 +200,9 @@ def test_projection_keeps_wall_normal_velocity(case, dtype):
     # The pressure gradient vanishes on solid walls, so no-penetration is kept.
     shape, lengths, bc = case
     solver = UniformGridSolver(shape, lengths, bc)
-    u, _ = project(solver, random_velocity(solver, dtype, torch.Generator().manual_seed(2)))
+    u, _ = project(
+        solver, random_velocity(solver, dtype, torch.Generator().manual_seed(2))
+    )
 
     for axis, axis_bc in enumerate(solver.boundary_types):
         for side, kind in enumerate(axis_bc):
@@ -211,7 +222,9 @@ def test_projection_is_idempotent(case, dtype):
 
     tolerance = velocity_tolerance(solver, dtype, max_abs(u_star))
     error = max_diff(u_again, u)
-    assert error <= tolerance, f"reprojection changed u by {error:.2e} > {tolerance:.2e}"
+    assert error <= tolerance, (
+        f"reprojection changed u by {error:.2e} > {tolerance:.2e}"
+    )
 
 
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
@@ -246,7 +259,9 @@ def test_streamfunction_velocity_is_unchanged(case, dtype):
                 psi.narrow(axis, 0 if side == 0 else -1, 1).zero_()
     # Differencing corners along one axis lands on the other component's faces.
     u_star = [corner_difference(solver, psi, 1), -corner_difference(solver, psi, 0)]
-    assert divergence(solver, u_star).abs().max() <= 100 * torch.finfo(dtype).eps * max_abs(u_star)
+    assert divergence(solver, u_star).abs().max() <= 100 * torch.finfo(
+        dtype
+    ).eps * max_abs(u_star)
 
     u, _ = project(solver, u_star)
 
@@ -292,7 +307,9 @@ def test_projection_gradient_is_projection(case, dtype):
     expected, _ = project(solver, g)
     tolerance = velocity_tolerance(solver, dtype, max_abs(g))
     error = max_diff(grads, expected)
-    assert error <= tolerance, f"gradient differs from P g by {error:.2e} > {tolerance:.2e}"
+    assert error <= tolerance, (
+        f"gradient differs from P g by {error:.2e} > {tolerance:.2e}"
+    )
 
 
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)

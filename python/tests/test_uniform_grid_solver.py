@@ -3,7 +3,6 @@ import math
 
 import pytest
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic, parse_bc
 from orthel.uniform_grid_solver import UniformGridSolver
 
@@ -62,7 +61,10 @@ def apply_operator(solver, u, bc=None):
             ghosts.append(2 * g - edge if kind == "dirichlet" else edge + h * g)
         padded = torch.cat([ghosts[0], u, ghosts[1]], dim=dim)
         a = solver.coefficients[axis]
-        out = out + a * (padded.narrow(dim, 0, n) - 2 * u + padded.narrow(dim, 2, n)) / h**2
+        out = (
+            out
+            + a * (padded.narrow(dim, 0, n) - 2 * u + padded.narrow(dim, 2, n)) / h**2
+        )
     return out
 
 
@@ -76,7 +78,9 @@ def backward_error(solver, u, f, bc=None):
     b = -apply_operator(solver, torch.zeros_like(u), bc)
     norm_a = sum(4 * a / h**2 for a, h in zip(solver.coefficients, solver.spacings))
     norm_a += abs(solver.shift)
-    return (residual.abs().max() / (norm_a * u.abs().max() + (f - b).abs().max())).item()
+    return (
+        residual.abs().max() / (norm_a * u.abs().max() + (f - b).abs().max())
+    ).item()
 
 
 def random_bc(solver, batch, dtype, generator):
@@ -88,10 +92,14 @@ def random_bc(solver, batch, dtype, generator):
             bc.append(Periodic())
             continue
         face = solver.shape[:axis] + solver.shape[axis + 1 :]
-        bc.append(tuple(
-            types[kind](torch.randn(*batch, *face, dtype=dtype, generator=generator))
-            for kind in kinds
-        ))
+        bc.append(
+            tuple(
+                types[kind](
+                    torch.randn(*batch, *face, dtype=dtype, generator=generator)
+                )
+                for kind in kinds
+            )
+        )
     return bc
 
 
@@ -146,13 +154,17 @@ def test_gradient_backward_error(case, dtype):
 
 def test_backward_error_detects_perturbed_solution():
     # Guards against a vacuous check: a small perturbation must exceed the tolerance.
-    solver = UniformGridSolver((48, 37), (1.0, 1.5), (Periodic(), (Dirichlet(), Neumann())))
+    solver = UniformGridSolver(
+        (48, 37), (1.0, 1.5), (Periodic(), (Dirichlet(), Neumann()))
+    )
     generator = torch.Generator().manual_seed(3)
     f = torch.randn(48, 37, dtype=torch.float64, generator=generator)
     boundaries = random_bc(solver, (), torch.float64, generator)
     u = solver(f, boundaries)
 
-    u_bad = u + 1e-12 * u.abs().max() * torch.randn(u.shape, dtype=u.dtype, generator=generator)
+    u_bad = u + 1e-12 * u.abs().max() * torch.randn(
+        u.shape, dtype=u.dtype, generator=generator
+    )
 
     tolerance = 10 * torch.finfo(torch.float64).eps
     assert backward_error(solver, u_bad, f, boundaries) > tolerance
@@ -181,7 +193,9 @@ def _operator_case_id(operator_case):
 @pytest.mark.parametrize("operator_case", OPERATOR_CASES, ids=_operator_case_id)
 def test_constant_coefficient_backward_error(operator_case, dtype):
     (shape, lengths, bc), coefficients, shift = operator_case
-    solver = UniformGridSolver(shape, lengths, bc, coefficients=coefficients, shift=shift)
+    solver = UniformGridSolver(
+        shape, lengths, bc, coefficients=coefficients, shift=shift
+    )
     generator = torch.Generator().manual_seed(4)
     f = torch.randn(2, *shape, dtype=dtype, generator=generator, requires_grad=True)
     boundaries = random_bc(solver, (2,), dtype, generator)
@@ -222,7 +236,9 @@ def test_invalid_coefficients_raise(coefficients):
         UniformGridSolver((4, 4), 1.0, Neumann(), coefficients=coefficients)
 
 
-@pytest.mark.parametrize("lengths", [0.0, -1.0, (1.0, 0.0), (1.0, -2.0), float("inf"), float("nan")])
+@pytest.mark.parametrize(
+    "lengths", [0.0, -1.0, (1.0, 0.0), (1.0, -2.0), float("inf"), float("nan")]
+)
 def test_invalid_lengths_raise(lengths):
     with pytest.raises(ValueError, match="lengths must be positive"):
         UniformGridSolver((4, 4), lengths, Neumann())

@@ -7,7 +7,7 @@ import torch
 
 from .boundary import AxisBC, Boundary, parse_bc
 from .eigenvalues import second_difference_eigenvalues
-from .transforms import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
+from .transforms.dct import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
 
 GhostRule = Literal["standard", "pde"]
 BC = Union[AxisBC, Sequence[AxisBC]]
@@ -29,23 +29,32 @@ _WALL_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
 }
 
 
-def _second_difference(x: torch.Tensor, dim: int, h: float, periodic: bool) -> torch.Tensor:
+def _second_difference(
+    x: torch.Tensor, dim: int, h: float, periodic: bool
+) -> torch.Tensor:
     """Second difference along ``dim``, one-sided at the ends unless periodic."""
     n = x.shape[dim]
     if periodic:
         return (x.roll(1, dim) - 2 * x + x.roll(-1, dim)) / h**2
     if n < 3:
         return torch.zeros_like(x)
-    inner = x.narrow(dim, 0, n - 2) - 2 * x.narrow(dim, 1, n - 2) + x.narrow(dim, 2, n - 2)
+    inner = (
+        x.narrow(dim, 0, n - 2) - 2 * x.narrow(dim, 1, n - 2) + x.narrow(dim, 2, n - 2)
+    )
     if n < 4:
         first, last = inner, inner
     else:
         flipped = x.flip(dim)
         first, last = (
-            2 * y.narrow(dim, 0, 1) - 5 * y.narrow(dim, 1, 1) + 4 * y.narrow(dim, 2, 1) - y.narrow(dim, 3, 1)
+            2 * y.narrow(dim, 0, 1)
+            - 5 * y.narrow(dim, 1, 1)
+            + 4 * y.narrow(dim, 2, 1)
+            - y.narrow(dim, 3, 1)
             for y in (x, flipped)
         )
-    return torch.cat([first.narrow(dim, 0, 1), inner, last.narrow(dim, -1, 1)], dim) / h**2
+    return (
+        torch.cat([first.narrow(dim, 0, 1), inner, last.narrow(dim, -1, 1)], dim) / h**2
+    )
 
 
 class UniformGridSolver:
@@ -101,19 +110,29 @@ class UniformGridSolver:
         self.shift = float(shift)
 
         if ghost_rule not in _GHOST_RULES:
-            raise ValueError(f"ghost_rule must be one of {_GHOST_RULES}, got {ghost_rule!r}")
+            raise ValueError(
+                f"ghost_rule must be one of {_GHOST_RULES}, got {ghost_rule!r}"
+            )
         self.ghost_rule = ghost_rule
 
         self.spacings = tuple(L / n for L, n in zip(self.lengths, self.shape))
-        self._periodic_axes = tuple(i for i, b in enumerate(self.boundary_types) if b[0] == "periodic")
-        self._wall_axes = tuple(i for i, b in enumerate(self.boundary_types) if b[0] != "periodic")
+        self._periodic_axes = tuple(
+            i for i, b in enumerate(self.boundary_types) if b[0] == "periodic"
+        )
+        self._wall_axes = tuple(
+            i for i, b in enumerate(self.boundary_types) if b[0] != "periodic"
+        )
 
         # Eigenvalues of Σ a_i λ_i + c, laid out to match the transformed array
         # (rfft halves the last periodic axis).
         eigenvalues = torch.full((), self.shift, dtype=torch.float64)
-        for i, (n, h, a) in enumerate(zip(self.shape, self.spacings, self.coefficients)):
+        for i, (n, h, a) in enumerate(
+            zip(self.shape, self.spacings, self.coefficients)
+        ):
             half = bool(self._periodic_axes) and i == self._periodic_axes[-1]
-            lam = second_difference_eigenvalues(n, h, self.boundary_types[i], half_spectrum=half)
+            lam = second_difference_eigenvalues(
+                n, h, self.boundary_types[i], half_spectrum=half
+            )
             view = [1] * ndim
             view[i] = -1
             eigenvalues = eigenvalues + a * lam.reshape(view)
@@ -121,17 +140,25 @@ class UniformGridSolver:
         # With c = 0 and no Dirichlet side, the constant mode has eigenvalue
         # exactly 0; zeroing its inverse selects the zero-mean solution. Any
         # other (near-)zero eigenvalue means the operator is singular.
-        has_null_mode = self.shift == 0 and not any("dirichlet" in b for b in self.boundary_types)
+        has_null_mode = self.shift == 0 and not any(
+            "dirichlet" in b for b in self.boundary_types
+        )
         if has_null_mode:
             null_mode = eigenvalues == 0
         else:
             null_mode = torch.zeros_like(eigenvalues, dtype=torch.bool)
         magnitude = eigenvalues.abs()
-        near_zero = magnitude <= 64 * torch.finfo(eigenvalues.dtype).eps * magnitude.max()
+        near_zero = (
+            magnitude <= 64 * torch.finfo(eigenvalues.dtype).eps * magnitude.max()
+        )
         if (near_zero & ~null_mode).any():
-            raise ValueError(f"operator is singular: shift {self.shift} matches an eigenvalue")
+            raise ValueError(
+                f"operator is singular: shift {self.shift} matches an eigenvalue"
+            )
         self._inv_eigenvalues = torch.where(null_mode, 0.0, 1.0 / eigenvalues)
-        self._inv_eigenvalues_cache: dict[tuple[torch.device, torch.dtype], torch.Tensor] = {}
+        self._inv_eigenvalues_cache: dict[
+            tuple[torch.device, torch.dtype], torch.Tensor
+        ] = {}
 
     def coords(
         self,
@@ -229,7 +256,9 @@ class UniformGridSolver:
             known = 2 * value if dirichlet else h * value
         if self.ghost_rule == "pde":
             if f is None:
-                raise ValueError('f is required for wall ghost cells with ghost_rule="pde"')
+                raise ValueError(
+                    'f is required for wall ghost cells with ghost_rule="pde"'
+                )
             derivative = self._normal_derivative(axis, side, f, value, dims)
             correction = (h**2 / 4 if dirichlet else h**3 / 24) * derivative
             known = correction if known is None else known + correction
@@ -282,7 +311,10 @@ class UniformGridSolver:
         return torch.broadcast_to(value, face_shape).unsqueeze(dim)
 
     def _lift(
-        self, f: torch.Tensor, bc: tuple[tuple[Boundary, Boundary], ...], dims: list[int]
+        self,
+        f: torch.Tensor,
+        bc: tuple[tuple[Boundary, Boundary], ...],
+        dims: list[int],
     ) -> torch.Tensor:
         """Move the known part of the ghost cells into the right-hand side."""
         rhs = f
@@ -300,7 +332,9 @@ class UniformGridSolver:
 
     def _check_field(self, x: torch.Tensor, name: str) -> None:
         if x.is_complex() or not x.is_floating_point():
-            raise TypeError(f"{name} must be a real floating-point tensor, got {x.dtype}")
+            raise TypeError(
+                f"{name} must be a real floating-point tensor, got {x.dtype}"
+            )
         ndim = len(self.shape)
         if x.ndim < ndim or tuple(x.shape[-ndim:]) != self.shape:
             raise ValueError(
@@ -321,5 +355,7 @@ class UniformGridSolver:
     def _inv_eigenvalues_for(self, f: torch.Tensor) -> torch.Tensor:
         key = (f.device, f.dtype)
         if key not in self._inv_eigenvalues_cache:
-            self._inv_eigenvalues_cache[key] = self._inv_eigenvalues.to(device=f.device, dtype=f.dtype)
+            self._inv_eigenvalues_cache[key] = self._inv_eigenvalues.to(
+                device=f.device, dtype=f.dtype
+            )
         return self._inv_eigenvalues_cache[key]

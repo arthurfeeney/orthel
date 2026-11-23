@@ -3,8 +3,7 @@ import math
 import pytest
 import scipy.fft
 import torch
-
-from orthel.transforms import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
+from orthel.transforms.dct import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
 
 # (forward, inverse, scipy function, scipy type). SciPy's unnormalised
 # transforms carry an extra factor of 2 relative to the definitions here.
@@ -29,7 +28,9 @@ def assert_close_to(actual, expected):
 
 
 def random(shape, dtype, seed=0, **kwargs):
-    return torch.randn(shape, dtype=dtype, generator=torch.Generator().manual_seed(seed), **kwargs)
+    return torch.randn(
+        shape, dtype=dtype, generator=torch.Generator().manual_seed(seed), **kwargs
+    )
 
 
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
@@ -39,7 +40,9 @@ def test_forward_matches_scipy(name, n, dtype):
     forward, _, scipy_fn, kind = TRANSFORMS[name]
     x = random((3, n), dtype)
 
-    expected = torch.from_numpy(scipy_fn(x.double().numpy(), type=kind, axis=-1) / 2).to(dtype)
+    expected = torch.from_numpy(
+        scipy_fn(x.double().numpy(), type=kind, axis=-1) / 2
+    ).to(dtype)
 
     assert_close_to(forward(x), expected)
 
@@ -89,7 +92,10 @@ def test_acts_on_last_dim_with_batch(name):
 @pytest.mark.parametrize("name", TRANSFORMS)
 def test_linear(name):
     forward, inverse, _, _ = TRANSFORMS[name]
-    x, y = random((3, 12), torch.float64, seed=1), random((3, 12), torch.float64, seed=2)
+    x, y = (
+        random((3, 12), torch.float64, seed=1),
+        random((3, 12), torch.float64, seed=2),
+    )
 
     for fn in (forward, inverse):
         assert_close_to(fn(2.5 * x - y), 2.5 * fn(x) - fn(y))

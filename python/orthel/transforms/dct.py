@@ -7,7 +7,9 @@ import torch
 
 def _normalize_dim(x: torch.Tensor, dim: int) -> int:
     if not -x.ndim <= dim < x.ndim:
-        raise IndexError(f"dim {dim} is out of range for a tensor with {x.ndim} dimensions")
+        raise IndexError(
+            f"dim {dim} is out of range for a tensor with {x.ndim} dimensions"
+        )
     return dim % x.ndim
 
 

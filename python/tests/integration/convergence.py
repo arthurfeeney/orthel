@@ -40,7 +40,6 @@ import sys
 from dataclasses import dataclass
 
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic
 from orthel.uniform_grid_solver import UniformGridSolver
 
@@ -104,11 +103,15 @@ class Study:
 
     @property
     def dirichlet_corner(self):
-        return sum(any(isinstance(s, Dirichlet) for s in pair) for pair in self.types) >= 2
+        return (
+            sum(any(isinstance(s, Dirichlet) for s in pair) for pair in self.types) >= 2
+        )
 
     @property
     def null_mode(self):
-        return self.shift == 0 and not any(isinstance(s, Dirichlet) for pair in self.types for s in pair)
+        return self.shift == 0 and not any(
+            isinstance(s, Dirichlet) for pair in self.types for s in pair
+        )
 
     @property
     def has_neumann(self):
@@ -123,7 +126,13 @@ class Study:
         adjoint = 2.0
         if self.ghost_rule == "pde" and self.has_walls:
             adjoint = 0.0 if self.has_neumann else 1.0
-        return {"u": 2.0, "grad": grad, "adjoint": adjoint, "adj-int": 2.0, "adj-dir": 2.0}
+        return {
+            "u": 2.0,
+            "grad": grad,
+            "adjoint": adjoint,
+            "adj-int": 2.0,
+            "adj-dir": 2.0,
+        }
 
 
 def manufactured(study):
@@ -165,7 +174,9 @@ def derivative(factors, points, axis):
     grids = torch.meshgrid(*points, indexing="ij")
     out = torch.ones((), dtype=DTYPE)
     for i, ((k, phase), x) in enumerate(zip(factors, grids)):
-        out = out * (-k * torch.sin(k * x + phase) if i == axis else torch.cos(k * x + phase))
+        out = out * (
+            -k * torch.sin(k * x + phase) if i == axis else torch.cos(k * x + phase)
+        )
     return out
 
 
@@ -183,12 +194,16 @@ def exact_bc(study, solver, factors):
         sides = []
         for side, boundary in enumerate(pair):
             face = list(points)
-            face[axis] = torch.tensor([0.0 if side == 0 else study.lengths[axis]], dtype=DTYPE)
+            face[axis] = torch.tensor(
+                [0.0 if side == 0 else study.lengths[axis]], dtype=DTYPE
+            )
             if isinstance(boundary, Dirichlet):
                 sides.append(Dirichlet(product(factors, face).squeeze(axis)))
             else:
                 sign = 1 if side == 1 else -1
-                sides.append(Neumann(sign * derivative(factors, face, axis).squeeze(axis)))
+                sides.append(
+                    Neumann(sign * derivative(factors, face, axis).squeeze(axis))
+                )
         bc.append(tuple(sides))
     return bc
 
@@ -200,8 +215,12 @@ def remove_mean(x):
 def errors_at(study, level):
     shape = tuple(n * 2**level for n in study.base)
     solver = UniformGridSolver(
-        shape, study.lengths, study.bc, coefficients=study.coefficients,
-        shift=study.shift, ghost_rule=study.ghost_rule,
+        shape,
+        study.lengths,
+        study.bc,
+        coefficients=study.coefficients,
+        shift=study.shift,
+        ghost_rule=study.ghost_rule,
     )
     ndim = len(shape)
     points = solver.coords(dtype=DTYPE)
@@ -225,7 +244,10 @@ def errors_at(study, level):
         faces[axis] = torch.arange(shape[axis] + 1, dtype=DTYPE) * solver.spacings[axis]
         exact = derivative(factors, faces, axis)
         if isinstance(solver.bc[axis][0], Periodic):
-            du, exact = du.narrow(axis, 0, shape[axis]), exact.narrow(axis, 0, shape[axis])
+            du, exact = (
+                du.narrow(axis, 0, shape[axis]),
+                exact.narrow(axis, 0, shape[axis]),
+            )
         grad_error = max(grad_error, (du - exact).abs().max().item())
 
     # ∂J/∂f for J = Σ w u approximates the adjoint solution z, where A z = w.
@@ -266,7 +288,8 @@ def errors_at(study, level):
 def run(study):
     rows = [errors_at(study, level) for level in range(study.levels)]
     rates = {
-        metric: math.log2(rows[-2][1][metric] / rows[-1][1][metric]) for metric in rows[0][1]
+        metric: math.log2(rows[-2][1][metric] / rows[-1][1][metric])
+        for metric in rows[0][1]
     }
     return rows, rates
 
@@ -280,20 +303,41 @@ def build_studies(quick):
             cases, OPERATORS.items(), ("standard", "pde")
         ):
             bc = tuple(AXIS_TYPES[n] for n in names)
-            studies.append(Study(
-                name=f"{ndim}d {'-'.join(names)} {op} {rule}",
-                bc=bc, coefficients=coefficients[:ndim], shift=shift, ghost_rule=rule,
-                lengths=grid["lengths"], base=grid["base"], levels=levels,
-            ))
+            studies.append(
+                Study(
+                    name=f"{ndim}d {'-'.join(names)} {op} {rule}",
+                    bc=bc,
+                    coefficients=coefficients[:ndim],
+                    shift=shift,
+                    ghost_rule=rule,
+                    lengths=grid["lengths"],
+                    base=grid["base"],
+                    levels=levels,
+                )
+            )
     return studies
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--quick", action="store_true", help="one refinement fewer per study")
-    parser.add_argument("-k", metavar="TEXT", default="", help="only run studies whose name contains TEXT")
-    parser.add_argument("--slack", type=float, default=0.15, help="allowed shortfall below the expected rate")
-    parser.add_argument("-v", "--verbose", action="store_true", help="print the errors at every level")
+    parser.add_argument(
+        "--quick", action="store_true", help="one refinement fewer per study"
+    )
+    parser.add_argument(
+        "-k",
+        metavar="TEXT",
+        default="",
+        help="only run studies whose name contains TEXT",
+    )
+    parser.add_argument(
+        "--slack",
+        type=float,
+        default=0.15,
+        help="allowed shortfall below the expected rate",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="print the errors at every level"
+    )
     args = parser.parse_args()
 
     studies = [s for s in build_studies(args.quick) if args.k in s.name]
@@ -306,14 +350,22 @@ def main():
         failed = [m for m in rates if rates[m] < expected[m] - args.slack]
         marks = {m: ("!" if m in failed else " ") for m in rates}
         finest = "x".join(map(str, rows[-1][0]))
-        print(f"{study.name:40s} {finest:>14s} " + "".join(f"{rates[m]:8.2f}{marks[m]}" for m in metrics))
+        print(
+            f"{study.name:40s} {finest:>14s} "
+            + "".join(f"{rates[m]:8.2f}{marks[m]}" for m in metrics)
+        )
         if args.verbose:
             for shape, errors in rows:
-                print(f"    {str(shape):>16s}  " + "  ".join(f"{m} {e:.2e}" for m, e in errors.items()))
+                print(
+                    f"    {shape!s:>16s}  "
+                    + "  ".join(f"{m} {e:.2e}" for m, e in errors.items())
+                )
         if failed:
             failures.append((study, rates, expected, failed))
 
-    print(f"\n{len(studies) - len(failures)}/{len(studies)} studies at their expected rates")
+    print(
+        f"\n{len(studies) - len(failures)}/{len(studies)} studies at their expected rates"
+    )
     for study, rates, expected, failed in failures:
         detail = ", ".join(f"{m} {rates[m]:.2f} < {expected[m]:.1f}" for m in failed)
         print(f"FAIL {study.name}: {detail}")

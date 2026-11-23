@@ -1,6 +1,5 @@
 import pytest
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic, parse_bc
 from orthel.uniform_grid_solver import UniformGridSolver
 
@@ -15,7 +14,10 @@ def kinds(pairs):
         (Periodic(), (("periodic", "periodic"),) * 2),
         (Dirichlet(), (("dirichlet", "dirichlet"),) * 2),
         ([Neumann(), Periodic()], (("neumann", "neumann"), ("periodic", "periodic"))),
-        ([(Dirichlet(1.0), Neumann()), Periodic()], (("dirichlet", "neumann"), ("periodic", "periodic"))),
+        (
+            [(Dirichlet(1.0), Neumann()), Periodic()],
+            (("dirichlet", "neumann"), ("periodic", "periodic")),
+        ),
     ],
 )
 def test_parse_bc(bc, expected):
@@ -24,7 +26,7 @@ def test_parse_bc(bc, expected):
 
 def test_parse_bc_keeps_values():
     g = torch.ones(3)
-    (low, high), = parse_bc([(Dirichlet(g), Neumann(2.0))], 1)
+    ((low, high),) = parse_bc([(Dirichlet(g), Neumann(2.0))], 1)
 
     assert low.value is g and high.value == 2.0
 
@@ -33,9 +35,17 @@ def test_parse_bc_keeps_values():
     "bc, error, match",
     [
         ("periodic", TypeError, "expected a boundary object"),
-        ([(Dirichlet(), "neumann"), Periodic()], TypeError, "expected a boundary object"),
+        (
+            [(Dirichlet(), "neumann"), Periodic()],
+            TypeError,
+            "expected a boundary object",
+        ),
         ([1.0, Neumann()], TypeError, "expected a boundary object"),
-        ([(Periodic(), Neumann()), Neumann()], ValueError, "periodic must apply to both sides"),
+        (
+            [(Periodic(), Neumann()), Neumann()],
+            ValueError,
+            "periodic must apply to both sides",
+        ),
         ([Periodic()], ValueError, "expected 2 boundary entries"),
     ],
 )

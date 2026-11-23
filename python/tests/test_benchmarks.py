@@ -3,7 +3,6 @@ import math
 
 import pytest
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic
 from orthel.eigenvalues import second_difference_eigenvalues
 from orthel.uniform_grid_solver import UniformGridSolver
@@ -65,7 +64,7 @@ def discrete_mode(n, length, bc, m, periodic_phase):
     else:
         theta = math.pi * (m + 0.5 * bc.count("dirichlet")) / n
         wave = torch.sin if bc[0] == "dirichlet" else torch.cos
-    eigenvalue = -((2 / h) * math.sin(theta / 2)) ** 2
+    eigenvalue = -(((2 / h) * math.sin(theta / 2)) ** 2)
     return wave(theta / h * x), eigenvalue
 
 
@@ -100,11 +99,15 @@ def smallest_nonzero_eigenvalue(solver):
 def test_single_eigenvector_is_solved_exactly(case, operator, selection, dtype):
     shape, lengths, bc = case
     coefficients, shift = OPERATORS[len(shape)][operator]
-    solver = UniformGridSolver(shape, lengths, bc, coefficients=coefficients, shift=shift)
+    solver = UniformGridSolver(
+        shape, lengths, bc, coefficients=coefficients, shift=shift
+    )
 
     f = torch.ones((), dtype=torch.float64)
     eigenvalue = shift
-    for axis, (n, length, axis_bc, a) in enumerate(zip(shape, lengths, solver.boundary_types, coefficients)):
+    for axis, (n, length, axis_bc, a) in enumerate(
+        zip(shape, lengths, solver.boundary_types, coefficients)
+    ):
         m, phase = choose_mode(n, axis_bc, axis, selection)
         values, lam = discrete_mode(n, length, axis_bc, m, phase)
         f = f[..., None] * values
@@ -115,7 +118,12 @@ def test_single_eigenvector_is_solved_exactly(case, operator, selection, dtype):
     u = solver(f.to(dtype))
 
     # Forward-error bound of a backward-stable solve: eps ‖f‖ ‖A⁻¹‖.
-    tolerance = 10 * torch.finfo(dtype).eps * f.abs().max() / smallest_nonzero_eigenvalue(solver)
+    tolerance = (
+        10
+        * torch.finfo(dtype).eps
+        * f.abs().max()
+        / smallest_nonzero_eigenvalue(solver)
+    )
     error = (u.double() - expected).abs().max()
     assert error <= tolerance, f"max error {error:.2e} exceeds {tolerance:.2e}"
 
