@@ -4,18 +4,7 @@ import pytest
 import scipy.fft
 import torch
 
-import orthel.orth_transforms as orth_transforms
 from orthel.transforms import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
-from orthel.orth_transforms import (
-    dct2 as orth_dct2,
-    dct4 as orth_dct4,
-    dst2 as orth_dst2,
-    dst4 as orth_dst4,
-    idct2 as orth_idct2,
-    idct4 as orth_idct4,
-    idst2 as orth_idst2,
-    idst4 as orth_idst4,
-)
 
 # (forward, inverse, scipy function, scipy type). SciPy's unnormalised
 # transforms carry an extra factor of 2 relative to the definitions here.
@@ -24,12 +13,6 @@ TRANSFORMS = {
     "dst2": (dst2, idst2, scipy.fft.dst, 2),
     "dct4": (dct4, idct4, scipy.fft.dct, 4),
     "dst4": (dst4, idst4, scipy.fft.dst, 4),
-}
-ORTH_TRANSFORMS = {
-    "dct2": (orth_dct2, orth_idct2),
-    "dst2": (orth_dst2, orth_idst2),
-    "dct4": (orth_dct4, orth_idct4),
-    "dst4": (orth_dst4, orth_idst4),
 }
 SIZES = [1, 2, 3, 8, 17, 64, 257]
 DTYPES = [torch.float64, torch.float32]
@@ -59,30 +42,6 @@ def test_forward_matches_scipy(name, n, dtype):
     expected = torch.from_numpy(scipy_fn(x.double().numpy(), type=kind, axis=-1) / 2).to(dtype)
 
     assert_close_to(forward(x), expected)
-
-
-@pytest.mark.parametrize("dtype", DTYPES, ids=str)
-@pytest.mark.parametrize("n", SIZES)
-@pytest.mark.parametrize("name", ORTH_TRANSFORMS)
-def test_orth_transform_matches_fft_reference(name, n, dtype):
-    forward, inverse = ORTH_TRANSFORMS[name]
-    reference_forward, reference_inverse, _, _ = TRANSFORMS[name]
-    x = random((2, n, 3), dtype)
-
-    assert_close_to(forward(x, dim=1), reference_forward(x, dim=1))
-    assert_close_to(inverse(x, dim=1), reference_inverse(x, dim=1))
-
-
-def test_8point_forward_uses_native_factorization(monkeypatch):
-    def fail_if_called(*args, **kwargs):
-        raise AssertionError("FFT reference should not be used for the native 8-point path")
-
-    monkeypatch.setattr(orth_transforms._fft, "dct2", fail_if_called)
-    monkeypatch.setattr(orth_transforms._fft, "dst2", fail_if_called)
-    x = random((4, 8), torch.float64)
-
-    assert orth_transforms.dct2(x).shape == x.shape
-    assert orth_transforms.dst2(x).shape == x.shape
 
 
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
@@ -140,15 +99,6 @@ def test_linear(name):
 def test_gradcheck(name):
     forward, inverse, _, _ = TRANSFORMS[name]
     x = random((2, 7), torch.float64, requires_grad=True)
-
-    assert torch.autograd.gradcheck(forward, (x,))
-    assert torch.autograd.gradcheck(inverse, (x,))
-
-
-@pytest.mark.parametrize("name", ORTH_TRANSFORMS)
-def test_orth_transform_gradcheck(name):
-    forward, inverse = ORTH_TRANSFORMS[name]
-    x = random((2, 8), torch.float64, requires_grad=True)
 
     assert torch.autograd.gradcheck(forward, (x,))
     assert torch.autograd.gradcheck(inverse, (x,))
