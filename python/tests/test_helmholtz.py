@@ -4,14 +4,18 @@ import pytest
 import torch
 from orthel.boundary import Dirichlet, Neumann, Periodic
 from orthel.helmholtz import helmholtz
-from orthel.operators import divergence, gradient, vel_from_streamfunction
+from orthel.mac_operators import (
+    mac_divergence,
+    mac_gradient,
+    mac_vel_from_streamfunction,
+)
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
 def test_periodic_gradient_pure_potential(dtype):
     bc = (Periodic(), Periodic())
     phi = torch.randn(3, 4, 5, dtype=dtype)
-    facex, facey = gradient(phi, (0.375, 0.25), bc)
+    facex, facey = mac_gradient(phi, (0.375, 0.25), bc)
 
     psi, recovered_phi = helmholtz(
         facex,
@@ -44,7 +48,7 @@ def test_periodic_gradient_pure_potential(dtype):
 def test_wall_boundary_shapes(dtype):
     bc = ((Dirichlet(), Dirichlet()), (Dirichlet(), Dirichlet()))
     phi = torch.randn(3, 4, 5, dtype=dtype)
-    facex, facey = gradient(phi, (0.5, 0.25), bc)
+    facex, facey = mac_gradient(phi, (0.5, 0.25), bc)
 
     psi, recovered_phi = helmholtz(
         facex,
@@ -101,8 +105,8 @@ def test_recovers_random_streamfunction_and_potential(name, dtype):
     spacings = (LENGTHS[0] / ny, LENGTHS[1] / nx)
     psi = _random_streamfunction(bc, ny, nx, dtype)
     phi = _random((2, ny, nx), dtype)
-    sx, sy = vel_from_streamfunction(psi, spacings, bc)
-    gx, gy = gradient(phi, spacings, bc)
+    sx, sy = mac_vel_from_streamfunction(psi, spacings, bc)
+    gx, gy = mac_gradient(phi, spacings, bc)
 
     recovered_psi, recovered_phi = helmholtz(sx + gx, sy + gy, lengths=LENGTHS, bc=bc)
 
@@ -125,9 +129,9 @@ def test_remainder_is_divergence_free_with_boundary_values(name):
     vely = _random((ny + 1, nx), torch.float64, 3)
 
     _, phi = helmholtz(velx, vely, lengths=LENGTHS, bc=bc)
-    gx, gy = gradient(phi, spacings, bc)
-    residual = divergence(velx - gx, vely - gy, spacings, bc)
-    scale = divergence(velx, vely, spacings, bc).abs().max()
+    gx, gy = mac_gradient(phi, spacings, bc)
+    residual = mac_divergence(velx - gx, vely - gy, spacings, bc)
+    scale = mac_divergence(velx, vely, spacings, bc).abs().max()
 
     assert residual.abs().max() <= 1e-12 * scale
 

@@ -3,7 +3,12 @@ import math
 import pytest
 import torch
 from orthel.boundary import Dirichlet, Neumann, Periodic
-from orthel.operators import curl, divergence, gradient, vel_from_streamfunction
+from orthel.mac_operators import (
+    mac_curl,
+    mac_divergence,
+    mac_gradient,
+    mac_vel_from_streamfunction,
+)
 from orthel.uniform_grid_solver import UniformGridSolver
 
 
@@ -15,8 +20,8 @@ def test_divergence_of_gradient_is_periodic_laplacian(dtype):
     grid = torch.randn(2, 4, 5, dtype=dtype)
 
     # div(grad(grid)) == laplacian(grid)
-    facex, facey = gradient(grid, spacing, bc)
-    result = divergence(facex, facey, spacing, bc)
+    facex, facey = mac_gradient(grid, spacing, bc)
+    result = mac_divergence(facex, facey, spacing, bc)
 
     expected = (grid.roll(-1, -1) - 2 * grid + grid.roll(1, -1)) / dx**2 + (
         grid.roll(-1, -2) - 2 * grid + grid.roll(1, -2)
@@ -37,8 +42,8 @@ def test_curl_of_gradient_is_zero(dtype):
     spacing = (0.5, 0.25)
     grid = torch.randn(2, 4, 5, dtype=dtype)
 
-    facex, facey = gradient(grid, spacing, bc)
-    result = curl(facex, facey, spacing, bc)
+    facex, facey = mac_gradient(grid, spacing, bc)
+    result = mac_curl(facex, facey, spacing, bc)
 
     tolerance = 100 * torch.finfo(dtype).eps
     torch.testing.assert_close(
@@ -55,8 +60,8 @@ def test_divergence_of_vel_from_streamfunction_is_zero(dtype):
     spacing = (0.5, 0.25)
 
     streamfunction = torch.randn(2, 4, 5, dtype=dtype)
-    facex, facey = vel_from_streamfunction(streamfunction, spacing, bc)
-    result = divergence(facex, facey, spacing, bc)
+    facex, facey = mac_vel_from_streamfunction(streamfunction, spacing, bc)
+    result = mac_divergence(facex, facey, spacing, bc)
 
     tolerance = 100 * torch.finfo(dtype).eps
     torch.testing.assert_close(
@@ -73,7 +78,7 @@ def test_neumann_gradient_has_zero_normal_wall_faces(dtype):
     spacing = (0.5, 0.25)
     grid = torch.randn(2, 4, 5, dtype=dtype)
 
-    facex, facey = gradient(grid, spacing, bc)
+    facex, facey = mac_gradient(grid, spacing, bc)
 
     assert torch.equal(facex[..., :, 0], torch.zeros_like(facex[..., :, 0]))
     assert torch.equal(facex[..., :, -1], torch.zeros_like(facex[..., :, -1]))
@@ -88,7 +93,7 @@ def test_mixed_dirichlet_gradient_uses_ghost_faces(dtype):
     bc = ((Neumann(), Dirichlet()), (Dirichlet(), Neumann()))
     grid = torch.full((2, 4, 5), 3.0, dtype=dtype)
 
-    facex, facey = gradient(grid, spacing, bc)
+    facex, facey = mac_gradient(grid, spacing, bc)
 
     tolerance = 100 * torch.finfo(dtype).eps
     torch.testing.assert_close(
@@ -115,7 +120,7 @@ def test_periodic_divergence_uses_neighboring_wraps(dtype):
     facex = torch.randn(2, 4, 5, dtype=dtype)
     facey = torch.randn(2, 4, 5, dtype=dtype)
 
-    result = divergence(facex, facey, spacing, bc)
+    result = mac_divergence(facex, facey, spacing, bc)
     expected = (facex.roll(-1, -1) - facex) / dx + (facey.roll(-1, -2) - facey) / dy
 
     tolerance = 100 * torch.finfo(dtype).eps
@@ -170,8 +175,8 @@ def test_curl_of_gradient_is_zero_for_all_boundaries(name, dtype):
     bc = BOUNDARIES[name]
     phi = _random((2, 6, 7), dtype)
 
-    facex, facey = gradient(phi, SPACING, bc)
-    result = curl(facex, facey, SPACING, bc)
+    facex, facey = mac_gradient(phi, SPACING, bc)
+    result = mac_curl(facex, facey, SPACING, bc)
 
     py, px = _periodic(bc)
     assert result.shape == (2, 6 if py else 5, 7 if px else 6)
@@ -184,8 +189,8 @@ def test_divergence_of_vel_from_streamfunction_is_zero_for_all_boundaries(name, 
     bc = BOUNDARIES[name]
     psi = _random((2, *_node_shape(bc, 6, 7)), dtype)
 
-    facex, facey = vel_from_streamfunction(psi, SPACING, bc)
-    result = divergence(facex, facey, SPACING, bc)
+    facex, facey = mac_vel_from_streamfunction(psi, SPACING, bc)
+    result = mac_divergence(facex, facey, SPACING, bc)
 
     assert result.shape == (2, 6, 7)
     _assert_zero(result, 20 / min(SPACING) ** 2, dtype)
@@ -206,7 +211,7 @@ def test_streamfunction_constant_on_walls_has_no_wall_flux(name):
         # One connected wall: psi takes a single value on all of it.
         psi[0] = psi[-1] = psi[:, 0] = psi[:, -1] = 1.5
 
-    facex, facey = vel_from_streamfunction(psi, SPACING, bc)
+    facex, facey = mac_vel_from_streamfunction(psi, SPACING, bc)
 
     if not px:
         assert torch.equal(facex[:, 0], torch.zeros_like(facex[:, 0]))
@@ -224,8 +229,8 @@ def test_curl_of_vel_from_streamfunction_is_node_laplacian(name):
     dy, dx = SPACING
     psi = _random((3, *_node_shape(bc, 5, 6)), torch.float64)
 
-    facex, facey = vel_from_streamfunction(psi, SPACING, bc)
-    result = curl(facex, facey, SPACING, bc)
+    facex, facey = mac_vel_from_streamfunction(psi, SPACING, bc)
+    result = mac_curl(facex, facey, SPACING, bc)
 
     padded = psi
     if py:
@@ -258,8 +263,8 @@ def test_divergence_of_gradient_inverts_solver(name, dtype):
     f = _random((2, 6, 7), dtype)
 
     phi = solver(f)
-    facex, facey = gradient(phi, solver.spacings, bc)
-    result = divergence(facex, facey, solver.spacings, bc)
+    facex, facey = mac_gradient(phi, solver.spacings, bc)
+    result = mac_divergence(facex, facey, solver.spacings, bc)
 
     scale = 1e3 if dtype == torch.float32 else 1e2
     tolerance = scale * torch.finfo(dtype).eps * f.abs().max().item()
@@ -273,7 +278,7 @@ def test_gradient_uses_tensor_boundary_values():
     bc = ((Neumann(), Neumann(q_high)), (Dirichlet(g_low), Neumann()))
     phi = _random((4, 5), torch.float64)
 
-    facex, facey = gradient(phi, SPACING, bc)
+    facex, facey = mac_gradient(phi, SPACING, bc)
 
     torch.testing.assert_close(facex[:, 0], 2 * (phi[:, 0] - g_low) / dx)
     torch.testing.assert_close(facey[-1], q_high)
@@ -313,7 +318,7 @@ def test_vel_from_streamfunction_and_curl_are_second_order(name):
         x_cells = (torch.arange(nx, dtype=torch.float64) + 0.5) * dx
 
         nodes = psi(y_nodes[:, None], x_nodes[None, :])
-        facex, facey = vel_from_streamfunction(nodes, (dy, dx), bc)
+        facex, facey = mac_vel_from_streamfunction(nodes, (dy, dx), bc)
         exact_x = velocity(y_cells[:, None], x_nodes[None, :])[0]
         exact_y = velocity(y_nodes[:, None], x_cells[None, :])[1]
         vel_errors.append(
@@ -322,7 +327,7 @@ def test_vel_from_streamfunction_and_curl_are_second_order(name):
 
         exact_facex = velocity(y_cells[:, None], x_nodes[None, :])[0]
         exact_facey = velocity(y_nodes[:, None], x_cells[None, :])[1]
-        vorticity = curl(exact_facex, exact_facey, (dy, dx), bc)
+        vorticity = mac_curl(exact_facex, exact_facey, (dy, dx), bc)
         y_inner = y_nodes if py else y_nodes[1:-1]
         x_inner = x_nodes if px else x_nodes[1:-1]
         exact_vorticity = (ky**2 + kx**2) * psi(y_inner[:, None], x_inner[None, :])
@@ -340,25 +345,25 @@ def test_single_cell_wall_axis(name):
     py, px = _periodic(bc)
     psi = _random(_node_shape(bc, 4, 1), torch.float64)
 
-    facex, facey = vel_from_streamfunction(psi, SPACING, bc)
+    facex, facey = mac_vel_from_streamfunction(psi, SPACING, bc)
     assert facex.shape == (4, 2)
     assert facey.shape == (4 if py else 5, 1)
-    assert curl(facex, facey, SPACING, bc).shape == (4 if py else 3, 0)
+    assert mac_curl(facex, facey, SPACING, bc).shape == (4 if py else 3, 0)
 
 
 def test_curl_rejects_mismatched_periodic_faces():
     bc = (Periodic(), Periodic())
     with pytest.raises(ValueError, match="spatial shape"):
-        curl(torch.randn(1, 4), torch.randn(2, 4), 1.0, bc)
+        mac_curl(torch.randn(1, 4), torch.randn(2, 4), 1.0, bc)
     with pytest.raises(ValueError, match="facex"):
-        curl(torch.randn(4, 5), torch.randn(5, 4), 1.0, bc)
+        mac_curl(torch.randn(4, 5), torch.randn(5, 4), 1.0, bc)
     with pytest.raises(ValueError, match="batch"):
-        curl(torch.randn(2, 4, 4), torch.randn(3, 4, 4), 1.0, bc)
+        mac_curl(torch.randn(2, 4, 4), torch.randn(3, 4, 4), 1.0, bc)
 
 
 def test_vel_from_streamfunction_rejects_too_few_wall_nodes():
     with pytest.raises(ValueError, match="at least 2 nodes"):
-        vel_from_streamfunction(torch.randn(1, 4), 1.0, (Dirichlet(), Dirichlet()))
+        mac_vel_from_streamfunction(torch.randn(1, 4), 1.0, (Dirichlet(), Dirichlet()))
 
 
 @pytest.mark.parametrize("name", BOUNDARIES)
@@ -371,13 +376,13 @@ def test_operators_gradcheck(name):
     facex = _random((2, ny, nx if px else nx + 1), torch.float64).requires_grad_()
     facey = _random((2, ny if py else ny + 1, nx), torch.float64).requires_grad_()
 
-    assert torch.autograd.gradcheck(lambda p: gradient(p, SPACING, bc), (phi,))
+    assert torch.autograd.gradcheck(lambda p: mac_gradient(p, SPACING, bc), (phi,))
     assert torch.autograd.gradcheck(
-        lambda p: vel_from_streamfunction(p, SPACING, bc), (psi,)
+        lambda p: mac_vel_from_streamfunction(p, SPACING, bc), (psi,)
     )
     assert torch.autograd.gradcheck(
-        lambda a, b: divergence(a, b, SPACING, bc), (facex, facey)
+        lambda a, b: mac_divergence(a, b, SPACING, bc), (facex, facey)
     )
     assert torch.autograd.gradcheck(
-        lambda a, b: curl(a, b, SPACING, bc), (facex, facey)
+        lambda a, b: mac_curl(a, b, SPACING, bc), (facex, facey)
     )

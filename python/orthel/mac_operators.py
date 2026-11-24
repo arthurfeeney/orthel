@@ -12,8 +12,8 @@ Grid layout, with axis order ``(y, x)`` throughout:
   corner of each cell and have ``n + 1`` entries along a wall axis, including
   both walls, and ``n`` along a periodic one.
 
-With this layout ``divergence(vel_from_streamfunction(psi)) == 0`` and
-``curl(gradient(phi)) == 0`` hold exactly for every boundary type.
+With this layout ``mac_divergence(mac_vel_from_streamfunction(psi)) == 0`` and
+``mac_curl(mac_gradient(phi)) == 0`` hold exactly for every boundary type.
 """
 
 from __future__ import annotations
@@ -80,7 +80,7 @@ def face_shape(
     return ny, nx
 
 
-def divergence(
+def mac_divergence(
     facex: torch.Tensor,
     facey: torch.Tensor,
     spacings: float | Sequence[float],
@@ -108,7 +108,7 @@ def divergence(
     return du_dx + du_dy
 
 
-def curl(
+def mac_curl(
     facex: torch.Tensor,
     facey: torch.Tensor,
     spacings: float | Sequence[float],
@@ -190,7 +190,7 @@ def _wall_face_gradient(
     return -sign * value
 
 
-def gradient(
+def mac_gradient(
     grid: torch.Tensor,
     spacings: float | Sequence[float],
     bc: AxisBC | Sequence[AxisBC],
@@ -204,7 +204,7 @@ def gradient(
     faces use the same ghost cells as :class:`orthel.UniformGridSolver` with
     ``ghost_rule="standard"``, including the boundary values: ``Dirichlet(g)``
     gives ``±2(φ_edge - g)/h`` and ``Neumann(q)`` gives ``∓q`` on the low and
-    high faces. So ``divergence(gradient(solver(f)))`` reproduces ``f``.
+    high faces. So ``mac_divergence(mac_gradient(solver(f)))`` reproduces ``f``.
     """
     if grid.ndim < 2:
         raise ValueError("grid must include two spatial dimensions")
@@ -229,7 +229,7 @@ def gradient(
     return facex, facey
 
 
-def vel_from_streamfunction(
+def mac_vel_from_streamfunction(
     streamfunction: torch.Tensor,
     spacings: float | Sequence[float],
     bc: AxisBC | Sequence[AxisBC],

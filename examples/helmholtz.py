@@ -19,7 +19,7 @@ import torch
 from matplotlib.colors import LogNorm
 from orthel.boundary import Dirichlet, Neumann
 from orthel.helmholtz import helmholtz
-from orthel.operators import divergence, gradient
+from orthel.mac_operators import mac_divergence, mac_gradient
 
 DEFAULT_DATA = Path("data/bubbleml-case-twall-70.hdf5")
 
@@ -75,7 +75,7 @@ def main():
         lengths[0] / shape[0],
         lengths[1] / shape[1],
     )
-    gx, gy = gradient(pressure, spacings, boundaries)
+    gx, gy = mac_gradient(pressure, spacings, boundaries)
     projected_ux = ux - gx
     projected_uy = uy - gy
 
@@ -84,8 +84,8 @@ def main():
     solenoidal_ux = ux - gx
     solenoidal_uy = uy - gy
 
-    original_divergence = divergence(ux, uy, spacings, boundaries)
-    projected_divergence = divergence(
+    original_divergence = mac_divergence(ux, uy, spacings, boundaries)
+    projected_divergence = mac_divergence(
         projected_ux,
         projected_uy,
         spacings,

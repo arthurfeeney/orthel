@@ -5,7 +5,7 @@ from collections.abc import Sequence
 import torch
 
 from .boundary import AxisBC, Dirichlet, Periodic
-from .operators import curl, divergence, face_shape, gradient
+from .mac_operators import face_shape, mac_curl, mac_divergence, mac_gradient
 from .uniform_grid_solver import UniformGridSolver
 
 
@@ -30,9 +30,9 @@ def helmholtz(
     Returns:
         ``(psi, phi)``. ``phi`` is cell-centred with shape ``(*batch, ny, nx)``.
         ``psi`` lives on the grid nodes (cell corners, see
-        :mod:`orthel.operators`) with shape ``(*batch, ny + 1, nx + 1)`` for
+        :mod:`orthel.mac_operators`) with shape ``(*batch, ny + 1, nx + 1)`` for
         two wall axes, and ``ny`` / ``nx`` along periodic axes, so that
-        ``vel_from_streamfunction(psi) + gradient(phi)`` rebuilds the input.
+        ``mac_vel_from_streamfunction(psi) + mac_gradient(phi)`` rebuilds the input.
 
     ``phi`` solves ``Δphi = div(u)`` with ``bc``. ``psi`` solves the node
     Laplacian ``Δpsi = -curl(u - grad(phi))`` with ``psi = 0`` on walls and zero
@@ -53,9 +53,9 @@ def helmholtz(
     )
     spacings = solver.spacings
 
-    phi = solver(divergence(velx, vely, spacings, bc))
-    gx, gy = gradient(phi, spacings, bc)
-    vorticity = curl(velx - gx, vely - gy, spacings, bc)
+    phi = solver(mac_divergence(velx, vely, spacings, bc))
+    gx, gy = mac_gradient(phi, spacings, bc)
+    vorticity = mac_curl(velx - gx, vely - gy, spacings, bc)
 
     psi_solver = UniformGridSolver(
         (ny, nx),
