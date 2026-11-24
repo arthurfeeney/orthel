@@ -1,4 +1,6 @@
-"""Solve a few 2D toy problems with UniformGridSolver and plot the solutions.
+"""
+Solve various PDEs using PyTorch and orthel's UniformGridSolver, which works
+for a range of elliptic PDEs: poisson, screened poisson, helmholz, etc.
 
 Run from the project root with
 

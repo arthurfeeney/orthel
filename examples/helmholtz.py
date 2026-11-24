@@ -1,4 +1,5 @@
-"""Use orthel to compute the Helmholtz decomposition of a face-centered grid.
+"""Use orthel to compute the Helmholtz decomposition of a face-centered grid
+stored in a PyTorch tensor.
 
 Run from the project root with
 
