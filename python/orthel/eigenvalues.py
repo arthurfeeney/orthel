@@ -36,8 +36,8 @@ def second_difference_eigenvalues(
     ``torch.fft.fft`` on periodic axes (``torch.fft.rfft`` if
     ``half_spectrum``), and the matching DCT/DST in
     :mod:`orthel.transforms.dct` on wall axes. On nodes those are DST-I
-    (Dirichlet/Dirichlet), DCT-I (Neumann/Neumann), and the inverse DCT-II
-    (Neumann/Dirichlet) and inverse DST-II (Dirichlet/Neumann).
+    (Dirichlet/Dirichlet), DCT-I (Neumann/Neumann), DCT-III
+    (Neumann/Dirichlet) and DST-III (Dirichlet/Neumann).
     """
     if grid not in ("cell", "node"):
         raise ValueError(f'grid must be "cell" or "node", got {grid!r}')

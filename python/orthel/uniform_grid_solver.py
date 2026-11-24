@@ -10,15 +10,19 @@ from .eigenvalues import second_difference_eigenvalues
 from .transforms.dct import (
     dct1,
     dct2,
+    dct3,
     dct4,
     dst1,
     dst2,
+    dst3,
     dst4,
     idct1,
     idct2,
+    idct3,
     idct4,
     idst1,
     idst2,
+    idst3,
     idst4,
 )
 
@@ -49,8 +53,8 @@ _CELL_CENTER_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
 _NODAL_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
     ("neumann", "neumann"): (dct1, idct1),
     ("dirichlet", "dirichlet"): (dst1, idst1),
-    ("neumann", "dirichlet"): (idct2, dct2),
-    ("dirichlet", "neumann"): (idst2, dst2),
+    ("neumann", "dirichlet"): (dct3, idct3),
+    ("dirichlet", "neumann"): (dst3, idst3),
 }
 
 

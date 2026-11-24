@@ -1,7 +1,7 @@
 import pytest
 import torch
 from orthel.eigenvalues import second_difference_eigenvalues
-from orthel.transforms.dct import dct2, dst2, idct1, idct2, idct4, idst1, idst2, idst4
+from orthel.transforms.dct import idct1, idct2, idct3, idct4, idst1, idst2, idst3, idst4
 
 # (low, high) wall types -> inverse transform, whose columns applied to the
 # identity are the eigenvectors in the order the eigenvalues are returned.
@@ -96,8 +96,8 @@ def test_unsupported_boundary_types_rejected(bc):
 NODE_INVERSES = {
     ("neumann", "neumann"): idct1,
     ("dirichlet", "dirichlet"): idst1,
-    ("neumann", "dirichlet"): dct2,
-    ("dirichlet", "neumann"): dst2,
+    ("neumann", "dirichlet"): idct3,
+    ("dirichlet", "neumann"): idst3,
 }
 
 

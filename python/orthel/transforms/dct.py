@@ -34,7 +34,7 @@ def dct2(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
 
 def idct2(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
-    """Inverse of :func:`dct2` (a scaled DCT-III)."""
+    """Inverse of :func:`dct2`: ``(2 / N) dct3(x)``."""
     dim = _normalize_dim(x, dim)
     n = x.shape[dim]
     k = _index(x, dim).to(x.dtype)
@@ -50,9 +50,40 @@ def dst2(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
 
 
 def idst2(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
-    """Inverse of :func:`dst2` (a scaled DST-III)."""
+    """Inverse of :func:`dst2`: ``(2 / N) dst3(x)``."""
     dim = _normalize_dim(x, dim)
     return idct2(x.flip(dim), dim) * _alternating_sign(x, dim)
+
+
+def dct3(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """DCT-III along ``dim``: ``X_k = x_0 / 2 + Σ_{j≥1} x_j cos(πj(2k+1) / 2N)``.
+
+    The transpose of :func:`dct2`, computed as ``(N / 2) idct2(x)``.
+    """
+    dim = _normalize_dim(x, dim)
+    return idct2(x, dim) * (x.shape[dim] / 2)
+
+
+def idct3(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """Inverse of :func:`dct3`: ``(2 / N) dct2(x)``."""
+    dim = _normalize_dim(x, dim)
+    return dct2(x, dim) * (2 / x.shape[dim])
+
+
+def dst3(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """DST-III along ``dim``.
+
+    ``X_k = (-1)^k x_{N-1} / 2 + Σ_{j≤N-2} x_j sin(π(2k+1)(j+1) / 2N)``, the
+    transpose of :func:`dst2`, computed as ``(N / 2) idst2(x)``.
+    """
+    dim = _normalize_dim(x, dim)
+    return idst2(x, dim) * (x.shape[dim] / 2)
+
+
+def idst3(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """Inverse of :func:`dst3`: ``(2 / N) dst2(x)``."""
+    dim = _normalize_dim(x, dim)
+    return dst2(x, dim) * (2 / x.shape[dim])
 
 
 def dct4(x: torch.Tensor, dim: int = -1) -> torch.Tensor:

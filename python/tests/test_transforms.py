@@ -6,15 +6,19 @@ import torch
 from orthel.transforms.dct import (
     dct1,
     dct2,
+    dct3,
     dct4,
     dst1,
     dst2,
+    dst3,
     dst4,
     idct1,
     idct2,
+    idct3,
     idct4,
     idst1,
     idst2,
+    idst3,
     idst4,
 )
 
@@ -26,6 +30,8 @@ TRANSFORMS = {
     "dst1": (dst1, idst1, scipy.fft.dst, scipy.fft.idst, 1),
     "dct2": (dct2, idct2, scipy.fft.dct, scipy.fft.idct, 2),
     "dst2": (dst2, idst2, scipy.fft.dst, scipy.fft.idst, 2),
+    "dct3": (dct3, idct3, scipy.fft.dct, scipy.fft.idct, 3),
+    "dst3": (dst3, idst3, scipy.fft.dst, scipy.fft.idst, 3),
     "dct4": (dct4, idct4, scipy.fft.dct, scipy.fft.idct, 4),
     "dst4": (dst4, idst4, scipy.fft.dst, scipy.fft.idst, 4),
 }
@@ -110,6 +116,10 @@ def test_matches_definition(name, n):
         "dst1": torch.sin(math.pi * (k + 1) * (j + 1) / (n + 1)),
         "dct2": torch.cos(math.pi * k * (2 * j + 1) / (2 * n)),
         "dst2": torch.sin(math.pi * (k + 1) * (2 * j + 1) / (2 * n)),
+        "dct3": torch.cos(math.pi * j * (2 * k + 1) / (2 * n))
+        * torch.where(j == 0, 0.5, 1.0),
+        "dst3": torch.sin(math.pi * (2 * k + 1) * (j + 1) / (2 * n))
+        * torch.where(j == n - 1, 0.5, 1.0),
         "dct4": torch.cos(math.pi * (2 * k + 1) * (2 * j + 1) / (4 * n)),
         "dst4": torch.sin(math.pi * (2 * k + 1) * (2 * j + 1) / (4 * n)),
     }
@@ -206,3 +216,16 @@ def test_dim_out_of_range(name, dim):
 def test_dct1_rejects_single_point():
     with pytest.raises(ValueError, match="at least 2"):
         dct1(torch.zeros(3, 1))
+
+
+@pytest.mark.parametrize("n", [1, 4, 9])
+@pytest.mark.parametrize("pair", [("dct2", "dct3"), ("dst2", "dst3")])
+def test_type3_is_transpose_of_type2(pair, n):
+    # DCT-III/DST-III differ from the transposed type-II matrices only in the
+    # half weight on one input; check against the type-II transforms directly.
+    type2, type3 = (TRANSFORMS[name][0] for name in pair)
+    eye = torch.eye(n, dtype=torch.float64)
+    weight = torch.ones(n, dtype=torch.float64)
+    weight[0 if pair[0] == "dct2" else -1] = 0.5
+
+    assert_close_to(type3(eye, dim=0), type2(eye, dim=0).T * weight)
