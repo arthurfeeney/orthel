@@ -1509,6 +1509,7 @@ dev = [
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 examples = [
+    { name = "h5py" },
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
@@ -1524,7 +1525,10 @@ dev = [
     { name = "ruff", specifier = ">=0.14.0" },
     { name = "scipy", specifier = ">=1.15.3" },
 ]
-examples = [{ name = "matplotlib", specifier = ">=3.10.9" }]
+examples = [
+    { name = "h5py", specifier = ">=3.16.0" },
+    { name = "matplotlib", specifier = ">=3.10.9" },
+]
 
 [[package]]
 name = "packaging"

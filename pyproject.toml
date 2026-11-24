@@ -28,6 +28,7 @@ dev = [
     "scipy>=1.15.3",
 ]
 examples = [
+    "h5py>=3.16.0",
     "matplotlib>=3.10.9",
 ]
 
