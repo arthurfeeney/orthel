@@ -5,7 +5,7 @@ from collections.abc import Sequence
 import torch
 
 from .boundary import AxisBC, Dirichlet, Periodic, parse_bc
-from .operators import divergence, gradient
+from .operators import curl, divergence, gradient
 from .uniform_grid_solver import UniformGridSolver
 
 
@@ -94,46 +94,7 @@ def helmholtz(
     solenoidal_x = velx - gx
     solenoidal_y = vely - gy
 
-    if boundary[1][0] == "periodic":
-        ux_center = solenoidal_x
-    else:
-        ux_center = 0.5 * (solenoidal_x[..., :, :-1] + solenoidal_x[..., :, 1:])
-    if boundary[0][0] == "periodic":
-        uy_center = solenoidal_y
-    else:
-        uy_center = 0.5 * (solenoidal_y[..., :-1, :] + solenoidal_y[..., 1:, :])
-
-    if boundary[1][0] == "periodic":
-        duydx = (uy_center.roll(-1, -1) - uy_center) / spacings[1]
-    elif nx > 1:
-        duydx = torch.empty_like(uy_center)
-        duydx[..., :, 0] = (uy_center[..., :, 1] - uy_center[..., :, 0]) / spacings[1]
-        duydx[..., :, -1] = (uy_center[..., :, -1] - uy_center[..., :, -2]) / spacings[
-            1
-        ]
-        if nx > 2:
-            duydx[..., :, 1:-1] = (uy_center[..., :, 2:] - uy_center[..., :, :-2]) / (
-                2 * spacings[1]
-            )
-    else:
-        duydx = torch.zeros_like(uy_center)
-
-    if boundary[0][0] == "periodic":
-        duxdy = (ux_center.roll(-1, -2) - ux_center) / spacings[0]
-    elif ny > 1:
-        duxdy = torch.empty_like(ux_center)
-        duxdy[..., 0, :] = (ux_center[..., 1, :] - ux_center[..., 0, :]) / spacings[0]
-        duxdy[..., -1, :] = (ux_center[..., -1, :] - ux_center[..., -2, :]) / spacings[
-            0
-        ]
-        if ny > 2:
-            duxdy[..., 1:-1, :] = (ux_center[..., 2:, :] - ux_center[..., :-2, :]) / (
-                2 * spacings[0]
-            )
-    else:
-        duxdy = torch.zeros_like(ux_center)
-
-    curl = duydx - duxdy
+    curl_field = curl(solenoidal_x, solenoidal_y, spacings, bc)
 
     psi_boundary = tuple(
         Periodic() if low == "periodic" else Dirichlet() for low, _ in boundary
@@ -146,5 +107,5 @@ def helmholtz(
         shift=0.0,
         ghost_rule="standard",
     )
-    psi = psi_solver(-curl)
+    psi = psi_solver(-curl_field)
     return psi, phi

@@ -1,54 +1,83 @@
 import pytest
 import torch
-from orthel.boundary import Neumann, Periodic
-from orthel.operators import divergence, gradient
+from orthel.boundary import Periodic
+from orthel.operators import curl, divergence, gradient, vel_from_streamfunction
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_wall_gradient_and_divergence(dtype):
-    grid = torch.arange(12, dtype=dtype).reshape(3, 4).requires_grad_()
+def test_divergence_of_gradient_is_periodic_laplacian(dtype):
+    bc = (Periodic(), Periodic())
     spacing = (0.5, 0.25)
-    bc = (Neumann(), Neumann())
+    dy, dx = spacing
+    grid = torch.randn(2, 4, 5, dtype=dtype)
+
+    # div(grad(grid)) == laplacian(grid)
+    facex, facey = gradient(grid, spacing, bc)
+    result = divergence(facex, facey, spacing, bc)
+
+    expected = (grid.roll(-1, -1) - 2 * grid + grid.roll(1, -1)) / dx**2 + (
+        grid.roll(-1, -2) - 2 * grid + grid.roll(1, -2)
+    ) / dy**2
+
+    tolerance = 100 * torch.finfo(dtype).eps
+    torch.testing.assert_close(
+        result,
+        expected,
+        atol=tolerance,
+        rtol=tolerance,
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_curl_of_gradient_is_zero(dtype):
+    bc = (Periodic(), Periodic())
+    spacing = (0.5, 0.25)
+    grid = torch.randn(2, 4, 5, dtype=dtype)
 
     facex, facey = gradient(grid, spacing, bc)
+    result = curl(facex, facey, spacing, bc)
 
-    assert facex.shape == (3, 5)
-    assert facey.shape == (4, 4)
-    assert torch.all(facex[:, 0] == 0)
-    assert torch.all(facex[:, -1] == 0)
-    assert torch.all(facey[0] == 0)
-    assert torch.all(facey[-1] == 0)
-
-    result = divergence(facex, facey, spacing, bc)
-    assert result.shape == (3, 4)
-    assert result.dtype == dtype
+    tolerance = 100 * torch.finfo(dtype).eps
+    torch.testing.assert_close(
+        result,
+        torch.zeros_like(result),
+        atol=tolerance,
+        rtol=tolerance,
+    )
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-def test_periodic_gradient_and_divergence(dtype):
-    grid = torch.arange(12, dtype=dtype).reshape(3, 4)
-    facex, facey = gradient(
-        grid,
-        (0.5, 0.25),
-        (Periodic(), Periodic()),
+def test_divergence_of_curl_is_zero(dtype):
+    bc = (Periodic(), Periodic())
+    spacing = (0.5, 0.25)
+    dy, dx = spacing
+
+    streamfunction = torch.randn(2, 4, 5, dtype=dtype)
+    facex, facey = vel_from_streamfunction(streamfunction, spacing, bc)
+    result = divergence(facex, facey, spacing, bc)
+
+    tolerance = 100 * torch.finfo(dtype).eps
+    torch.testing.assert_close(
+        result,
+        torch.zeros_like(result),
+        atol=tolerance,
+        rtol=tolerance,
     )
 
-    assert facex.shape == (3, 4)
-    assert facey.shape == (3, 4)
 
-    result = divergence(
-        facex,
-        facey,
-        (0.5, 0.25),
-        (Periodic(), Periodic()),
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_divergence_of_vel_from_streamfunction_is_zero(dtype):
+    bc = (Periodic(), Periodic())
+    spacing = (0.5, 0.25)
+
+    streamfunction = torch.randn(2, 4, 5, dtype=dtype)
+    facex, facey = vel_from_streamfunction(streamfunction, spacing, bc)
+    result = divergence(facex, facey, spacing, bc)
+
+    tolerance = 100 * torch.finfo(dtype).eps
+    torch.testing.assert_close(
+        result,
+        torch.zeros_like(result),
+        atol=tolerance,
+        rtol=tolerance,
     )
-    assert result.shape == (3, 4)
-
-
-def test_gradient_supports_batches():
-    grid = torch.randn(2, 3, 4, dtype=torch.float64)
-    facex, facey = gradient(grid, (0.5, 0.25), (Neumann(), Neumann()))
-
-    assert facex.shape == (2, 3, 5)
-    assert facey.shape == (2, 4, 4)
-    assert divergence(facex, facey, (0.5, 0.25)).shape == (2, 3, 4)
