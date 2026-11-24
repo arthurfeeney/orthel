@@ -35,7 +35,9 @@ def periodic_dipole():
 
 def heated_lid():
     """Laplace's equation in a box held at u = 0 with the top wall at u = 1."""
-    solver = UniformGridSolver(SHAPE, LENGTHS, [Dirichlet(), (Dirichlet(), Dirichlet(1.0))])
+    solver = UniformGridSolver(
+        SHAPE, LENGTHS, [Dirichlet(), (Dirichlet(), Dirichlet(1.0))]
+    )
     f = torch.zeros(SHAPE, dtype=torch.float64)
     return solver, f, solver(f)
 
@@ -88,7 +90,9 @@ PROBLEMS = [
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--save", metavar="PATH", help="write the figure instead of showing it")
+    parser.add_argument(
+        "--save", metavar="PATH", help="write the figure instead of showing it"
+    )
     args = parser.parse_args()
 
     fig, axes = plt.subplots(2, 3, figsize=(13, 8.5), constrained_layout=True)
@@ -98,7 +102,14 @@ def main():
         limit = u.abs().max().item()
         # Signed fields use a diverging map centred on zero.
         if u.min() < 0 < u.max():
-            image = ax.imshow(u.T, origin="lower", extent=extent, cmap="RdBu_r", vmin=-limit, vmax=limit)
+            image = ax.imshow(
+                u.T,
+                origin="lower",
+                extent=extent,
+                cmap="RdBu_r",
+                vmin=-limit,
+                vmax=limit,
+            )
         else:
             image = ax.imshow(u.T, origin="lower", extent=extent, cmap="viridis")
         ax.contour(u.T, levels=12, colors="k", linewidths=0.5, alpha=0.5, extent=extent)

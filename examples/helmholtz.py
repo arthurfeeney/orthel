@@ -128,7 +128,8 @@ def main():
         origin="lower",
         aspect="auto",
         cmap="RdBu_r",
-        extent=extent,
+        # psi lives on cell corners, which span the face coordinates.
+        extent=(x_faces[0], x_faces[-1], y_faces[0], y_faces[-1]),
         vmin=-psi_limit,
         vmax=psi_limit,
     )
