@@ -4,50 +4,9 @@ from collections.abc import Sequence
 
 import torch
 
-from .boundary import AxisBC, Dirichlet, Periodic, parse_bc
-from .operators import curl, divergence, gradient
+from .boundary import AxisBC, Dirichlet, Periodic
+from .operators import curl, divergence, face_shape, gradient
 from .uniform_grid_solver import UniformGridSolver
-
-
-def _spatial_shape(
-    velx: torch.Tensor,
-    vely: torch.Tensor,
-    bc: AxisBC | Sequence[AxisBC],
-) -> tuple[int, int]:
-    if velx.ndim < 2 or vely.ndim < 2:
-        raise ValueError("velx and vely must include two spatial dimensions")
-    boundary = parse_bc(bc, 2)
-    (low_y, _), (low_x, _) = boundary
-    ny = velx.shape[-2]
-    nx = vely.shape[-1]
-    if low_y.kind == "periodic":
-        if vely.shape[-2] != ny:
-            raise ValueError(
-                "periodic y boundary requires vely shape (*, ny, nx); "
-                f"got {tuple(vely.shape)}"
-            )
-    elif vely.shape[-2] != ny + 1:
-        raise ValueError(
-            "wall y boundary requires vely shape (*, ny + 1, nx); "
-            f"got {tuple(vely.shape)}"
-        )
-    if low_x.kind == "periodic":
-        if velx.shape[-1] != nx:
-            raise ValueError(
-                "periodic x boundary requires velx shape (*, ny, nx); "
-                f"got {tuple(velx.shape)}"
-            )
-    elif velx.shape[-1] != nx + 1:
-        raise ValueError(
-            "wall x boundary requires velx shape (*, ny, nx + 1); "
-            f"got {tuple(velx.shape)}"
-        )
-    if velx.shape[:-2] != vely.shape[:-2]:
-        raise ValueError(
-            f"velx batch shape {tuple(velx.shape[:-2])} does not match "
-            f"vely batch shape {tuple(vely.shape[:-2])}"
-        )
-    return ny, nx
 
 
 def helmholtz(
@@ -69,14 +28,21 @@ def helmholtz(
         bc: boundary entries ``(y_bc, x_bc)``.
 
     Returns:
-        ``(psi, phi)`` on the cell-centred grid, each with shape
-        ``(*batch, ny, nx)``.
+        ``(psi, phi)``. ``phi`` is cell-centred with shape ``(*batch, ny, nx)``.
+        ``psi`` lives on the grid nodes (cell corners, see
+        :mod:`orthel.operators`) with shape ``(*batch, ny + 1, nx + 1)`` for
+        two wall axes, and ``ny`` / ``nx`` along periodic axes, so that
+        ``vel_from_streamfunction(psi) + gradient(phi)`` rebuilds the input.
 
-    ``phi`` is the scalar dilational potential. ``psi`` is reconstructed from
-    the solenoidal residual and uses periodic boundaries on periodic axes and
-    Dirichlet boundaries on wall axes.
+    ``phi`` solves ``Δphi = div(u)`` with ``bc``. ``psi`` solves the node
+    Laplacian ``Δpsi = -curl(u - grad(phi))`` with ``psi = 0`` on walls and zero
+    mean when both axes are periodic.
+
+    Limitation: the harmonic part of ``u`` (a uniform flow on a periodic
+    domain, net flow along a channel, or wall flux not captured by ``phi``) is
+    in neither field, so the reconstruction is exact only when ``u`` has none.
     """
-    ny, nx = _spatial_shape(velx, vely, bc)
+    ny, nx = face_shape(velx, vely, bc)
     solver = UniformGridSolver(
         (ny, nx),
         lengths,
@@ -86,26 +52,25 @@ def helmholtz(
         ghost_rule="standard",
     )
     spacings = solver.spacings
-    boundary = solver.boundary_types
 
-    div = divergence(velx, vely, spacings, bc)
-    phi = solver(div)
+    phi = solver(divergence(velx, vely, spacings, bc))
     gx, gy = gradient(phi, spacings, bc)
-    solenoidal_x = velx - gx
-    solenoidal_y = vely - gy
+    vorticity = curl(velx - gx, vely - gy, spacings, bc)
 
-    curl_field = curl(solenoidal_x, solenoidal_y, spacings, bc)
-
-    psi_boundary = tuple(
-        Periodic() if low == "periodic" else Dirichlet() for low, _ in boundary
-    )
     psi_solver = UniformGridSolver(
         (ny, nx),
         solver.lengths,
-        psi_boundary,
+        tuple(
+            Periodic() if low == "periodic" else Dirichlet()
+            for low, _ in solver.boundary_types
+        ),
         coefficients=1.0,
         shift=0.0,
-        ghost_rule="standard",
+        grid="node",
     )
-    psi = psi_solver(-curl_field)
+    # curl only covers the unknown nodes; the solver ignores f on wall nodes.
+    pad = []
+    for low, _ in reversed(solver.boundary_types):
+        pad += [0, 0] if low == "periodic" else [1, 1]
+    psi = psi_solver(-torch.nn.functional.pad(vorticity, pad))
     return psi, phi

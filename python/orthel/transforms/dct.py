@@ -80,3 +80,39 @@ def idst4(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """Inverse of :func:`dst4`, which is its own inverse up to a factor of 2 / N."""
     dim = _normalize_dim(x, dim)
     return dst4(x, dim) * (2 / x.shape[dim])
+
+
+def dst1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """DST-I along ``dim``: ``X_k = Σ_j x_j sin(π(k+1)(j+1) / (N+1))``."""
+    dim = _normalize_dim(x, dim)
+    n = x.shape[dim]
+    if n == 0:
+        return x.clone()
+    zero = torch.zeros_like(x.narrow(dim, 0, 1))
+    odd = torch.cat([zero, x, zero, -x.flip(dim)], dim=dim)
+    return -0.5 * torch.fft.rfft(odd, dim=dim).imag.narrow(dim, 1, n)
+
+
+def idst1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """Inverse of :func:`dst1`, which is its own inverse up to a factor of 2 / (N+1)."""
+    dim = _normalize_dim(x, dim)
+    return dst1(x, dim) * (2 / (x.shape[dim] + 1))
+
+
+def dct1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """DCT-I along ``dim``, for ``N >= 2``.
+
+    ``X_k = x_0 / 2 + (-1)^k x_{N-1} / 2 + Σ_{j=1}^{N-2} x_j cos(πkj / (N-1))``.
+    """
+    dim = _normalize_dim(x, dim)
+    n = x.shape[dim]
+    if n < 2:
+        raise ValueError(f"dct1 needs at least 2 points along dim {dim}, got {n}")
+    even = torch.cat([x, x.narrow(dim, 1, n - 2).flip(dim)], dim=dim)
+    return 0.5 * torch.fft.rfft(even, dim=dim).real
+
+
+def idct1(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    """Inverse of :func:`dct1`, which is its own inverse up to a factor of 2 / (N-1)."""
+    dim = _normalize_dim(x, dim)
+    return dct1(x, dim) * (2 / (x.shape[dim] - 1))

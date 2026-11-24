@@ -7,12 +7,27 @@ import torch
 
 from .boundary import AxisBC, Boundary, parse_bc
 from .eigenvalues import second_difference_eigenvalues
-from .transforms.dct import dct2, dct4, dst2, dst4, idct2, idct4, idst2, idst4
+from .transforms.dct import (
+    dct1,
+    dct2,
+    dct4,
+    dst1,
+    dst2,
+    dst4,
+    idct1,
+    idct2,
+    idct4,
+    idst1,
+    idst2,
+    idst4,
+)
 
-GhostRule = Literal["standard", "pde"]
+GhostRule = Literal["standard"]
+Grid = Literal["cell", "node"]
 BC = Union[AxisBC, Sequence[AxisBC]]
 
-_GHOST_RULES = ("standard", "pde")
+_GHOST_RULES = ("standard",)
+_GRIDS = ("cell", "node")
 
 
 Transform = Callable[[torch.Tensor, int], torch.Tensor]
@@ -21,7 +36,7 @@ Transform = Callable[[torch.Tensor, int], torch.Tensor]
 # cell-centred 3-point Laplacian with ghost cells mirrored (Neumann) or
 # anti-mirrored (Dirichlet) across the faces, with eigenvalues ordered as in
 # second_difference_eigenvalues.
-_WALL_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
+_CELL_CENTER_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
     ("neumann", "neumann"): (dct2, idct2),
     ("dirichlet", "dirichlet"): (dst2, idst2),
     ("neumann", "dirichlet"): (dct4, idct4),
@@ -29,36 +44,18 @@ _WALL_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
 }
 
 
-def _second_difference(
-    x: torch.Tensor, dim: int, h: float, periodic: bool
-) -> torch.Tensor:
-    """Second difference along ``dim``, one-sided at the ends unless periodic."""
-    n = x.shape[dim]
-    if periodic:
-        return (x.roll(1, dim) - 2 * x + x.roll(-1, dim)) / h**2
-    if n < 3:
-        return torch.zeros_like(x)
-    inner = (
-        x.narrow(dim, 0, n - 2) - 2 * x.narrow(dim, 1, n - 2) + x.narrow(dim, 2, n - 2)
-    )
-    if n < 4:
-        first, last = inner, inner
-    else:
-        flipped = x.flip(dim)
-        first, last = (
-            2 * y.narrow(dim, 0, 1)
-            - 5 * y.narrow(dim, 1, 1)
-            + 4 * y.narrow(dim, 2, 1)
-            - y.narrow(dim, 3, 1)
-            for y in (x, flipped)
-        )
-    return (
-        torch.cat([first.narrow(dim, 0, 1), inner, last.narrow(dim, -1, 1)], dim) / h**2
-    )
+# The same for the node-centered Laplacian on the unknown nodes (Dirichlet wall
+# nodes are known and left out; Neumann wall nodes mirror ``u_{-1} = u_1``).
+_NODAL_TRANSFORMS: dict[tuple[str, str], tuple[Transform, Transform]] = {
+    ("neumann", "neumann"): (dct1, idct1),
+    ("dirichlet", "dirichlet"): (dst1, idst1),
+    ("neumann", "dirichlet"): (idct2, dct2),
+    ("dirichlet", "neumann"): (idst2, dst2),
+}
 
 
 class UniformGridSolver:
-    """Solve ``Σ_i a_i ∂²u/∂x_i² + c u = f`` on a uniform cell-centred grid.
+    """Solve ``Σ_i a_i ∂²u/∂x_i² + c u = f`` on a uniform grid.
 
     Args:
         shape: Number of cells along each axis.
@@ -68,11 +65,15 @@ class UniformGridSolver:
             or a ``(low, high)`` pair).
         coefficients: Positive ``a_i``, one value for all axes or one per axis.
         shift: The constant ``c``.
-        ghost_rule: ``"standard"`` fills ghost cells with ``2g - u_0``
-            (Dirichlet) and ``u_0 + h q`` (Neumann). ``"pde"`` adds the
-            missing ``(h²/4) ∂²u/∂n²`` and ``(h³/24) ∂³u/∂n³`` terms, taken
-            from the equation, which makes the gradient of ``u`` second order
-            up to the walls but assumes ``f`` is smooth there.
+        ghost_rule: How wall ghost cells are filled. ``"standard"`` (the only
+            rule for now) uses ``2g - u_0`` (Dirichlet) and ``u_0 + h q``
+            (Neumann) on cells.
+        grid: ``"cell"`` puts ``u`` and ``f`` at cell centres, with shape
+            ``shape``. ``"node"`` puts them at cell corners: ``n + 1`` values
+            along a wall axis (both wall nodes included) and ``n`` along a
+            periodic axis.
+            On nodes a Dirichlet wall fixes ``u = g`` at its wall nodes and a
+            Neumann wall uses a centered ghost cell ``u_{-1} = u_1 + 2 h q``.
     """
 
     def __init__(
@@ -83,6 +84,7 @@ class UniformGridSolver:
         coefficients: float | Sequence[float] = 1.0,
         shift: float = 0.0,
         ghost_rule: GhostRule = "standard",
+        grid: Grid = "cell",
     ) -> None:
         self.shape = tuple(int(n) for n in shape)
         ndim = len(self.shape)
@@ -114,6 +116,9 @@ class UniformGridSolver:
                 f"ghost_rule must be one of {_GHOST_RULES}, got {ghost_rule!r}"
             )
         self.ghost_rule = ghost_rule
+        if grid not in _GRIDS:
+            raise ValueError(f"grid must be one of {_GRIDS}, got {grid!r}")
+        self.grid = grid
 
         self.spacings = tuple(L / n for L, n in zip(self.lengths, self.shape))
         self._periodic_axes = tuple(
@@ -121,6 +126,22 @@ class UniformGridSolver:
         )
         self._wall_axes = tuple(
             i for i, b in enumerate(self.boundary_types) if b[0] != "periodic"
+        )
+        # Shape of u and f, and on nodes the (start, length) of the unknown
+        # nodes along each axis (Dirichlet wall nodes are known).
+        if grid == "cell":
+            self.field_shape = self.shape
+        else:
+            self.field_shape = tuple(
+                n if b[0] == "periodic" else n + 1
+                for n, b in zip(self.shape, self.boundary_types)
+            )
+        self._unknowns = tuple(
+            (
+                int(b[0] == "dirichlet"),
+                n - b.count("dirichlet") if grid == "node" else n,
+            )
+            for n, b in zip(self.field_shape, self.boundary_types)
         )
 
         # Eigenvalues of Σ a_i λ_i + c, laid out to match the transformed array
@@ -131,7 +152,7 @@ class UniformGridSolver:
         ):
             half = bool(self._periodic_axes) and i == self._periodic_axes[-1]
             lam = second_difference_eigenvalues(
-                n, h, self.boundary_types[i], half_spectrum=half
+                n, h, self.boundary_types[i], half_spectrum=half, grid=grid
             )
             view = [1] * ndim
             view[i] = -1
@@ -148,9 +169,9 @@ class UniformGridSolver:
         else:
             null_mode = torch.zeros_like(eigenvalues, dtype=torch.bool)
         magnitude = eigenvalues.abs()
-        near_zero = (
-            magnitude <= 64 * torch.finfo(eigenvalues.dtype).eps * magnitude.max()
-        )
+        # A node grid with two Dirichlet walls one cell apart has no unknowns.
+        largest = magnitude.max() if magnitude.numel() else 0.0
+        near_zero = magnitude <= 64 * torch.finfo(eigenvalues.dtype).eps * largest
         if (near_zero & ~null_mode).any():
             raise ValueError(
                 f"operator is singular: shift {self.shift} matches an eigenvalue"
@@ -166,17 +187,18 @@ class UniformGridSolver:
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> tuple[torch.Tensor, ...]:
-        """Return the cell-centre coordinates along each axis as 1D tensors."""
+        """Return the cell-centre (or node) coordinates along each axis as 1D tensors."""
+        offset = 0.5 if self.grid == "cell" else 0.0
         return tuple(
-            (torch.arange(n, device=device, dtype=dtype) + 0.5) * h
-            for n, h in zip(self.shape, self.spacings)
+            (torch.arange(n, device=device, dtype=dtype) + offset) * h
+            for n, h in zip(self.field_shape, self.spacings)
         )
 
     def __call__(self, f: torch.Tensor, bc: BC | None = None) -> torch.Tensor:
-        """Solve for ``u`` given ``f`` of shape ``(*batch, *self.shape)``.
+        """Solve for ``u`` given ``f`` of shape ``(*batch, *self.field_shape)``.
 
         Args:
-            f: Right-hand side at cell centres.
+            f: Right-hand side at cell centres, or at nodes with ``grid="node"``.
             bc: Boundaries to use instead of the solver's, with the same
                 types. Values must broadcast to the face, including batch
                 dimensions.
@@ -185,22 +207,107 @@ class UniformGridSolver:
         bc = self._call_bc(bc)
         ndim = len(self.shape)
         dims = [f.ndim - ndim + i for i in range(ndim)]
-        periodic_dims = [dims[i] for i in self._periodic_axes]
+        if self.grid == "node":
+            return self._solve_nodes(f, bc, dims)
+        return self._solve_cells(f, bc, dims)
 
-        x = self._lift(f, bc, dims)
+    def _solve_cells(
+        self,
+        f: torch.Tensor,
+        bc: tuple[tuple[Boundary, Boundary], ...],
+        dims: list[int],
+    ) -> torch.Tensor:
+        """Solve on cell centres, with wall values lifted through the ghost cells."""
+        return self._spectral_solve(
+            self._lift(f, bc, dims), dims, _CELL_CENTER_TRANSFORMS
+        )
+
+    def _spectral_solve(
+        self,
+        x: torch.Tensor,
+        dims: list[int],
+        transforms: dict[tuple[str, str], tuple[Transform, Transform]],
+    ) -> torch.Tensor:
+        """Apply the inverse operator to a lifted right-hand side on the unknowns."""
+        inv_eigenvalues = self._inv_eigenvalues_for(x)
+        periodic_dims = [dims[i] for i in self._periodic_axes]
         for i in self._wall_axes:
-            x = _WALL_TRANSFORMS[self.boundary_types[i]][0](x, dims[i])
+            x = transforms[self.boundary_types[i]][0](x, dims[i])
         if periodic_dims:
             x = torch.fft.rfftn(x, dim=periodic_dims)
 
-        x = x * self._inv_eigenvalues_for(f)
+        x = x * inv_eigenvalues
 
         if periodic_dims:
             sizes = [self.shape[i] for i in self._periodic_axes]
             x = torch.fft.irfftn(x, s=sizes, dim=periodic_dims)
         for i in self._wall_axes:
-            x = _WALL_TRANSFORMS[self.boundary_types[i]][1](x, dims[i])
+            x = transforms[self.boundary_types[i]][1](x, dims[i])
         return x
+
+    def _solve_nodes(
+        self,
+        f: torch.Tensor,
+        bc: tuple[tuple[Boundary, Boundary], ...],
+        dims: list[int],
+    ) -> torch.Tensor:
+        """Solve on nodes: drop the known Dirichlet wall nodes, lift the wall
+        values into the right-hand side, solve, then put the wall nodes back."""
+
+        def restrict(x: torch.Tensor, skip: int | None = None) -> torch.Tensor:
+            # Keep only the unknown nodes along wall axes other than ``skip``.
+            for i in self._wall_axes:
+                if i != skip:
+                    x = x.narrow(dims[i], *self._unknowns[i])
+            return x
+
+        rhs = restrict(f)
+        lifted = False
+        for axis in self._wall_axes:
+            dim, h, a = dims[axis], self.spacings[axis], self.coefficients[axis]
+            start, length = self._unknowns[axis]
+            if length == 0:
+                continue
+            for side in (0, 1):
+                value = self._wall_value(axis, side, f, bc, dims)
+                if value is None:
+                    continue
+                value = restrict(value, skip=axis)
+                if self.boundary_types[axis][side] == "dirichlet":
+                    known = a / h**2 * value  # the wall node's stencil weight
+                else:
+                    known = 2 * a / h * value  # from the ghost u_1 + 2 h q
+                if not lifted:
+                    rhs, lifted = rhs.clone(), True
+                rhs.narrow(dim, 0 if side == 0 else length - 1, 1).sub_(known)
+
+        if rhs.numel() == 0:
+            u = rhs.clone()
+        else:
+            u = self._spectral_solve(rhs, dims, _NODAL_TRANSFORMS)
+
+        # Put the Dirichlet wall nodes back, one axis at a time.
+        for axis in self._wall_axes:
+            pieces = []
+            for side in (0, 1):
+                if self.boundary_types[axis][side] != "dirichlet":
+                    continue
+                value = self._wall_value(axis, side, f, bc, dims)
+                like = u.narrow(dims[axis], 0, 0)
+                shape = list(like.shape)
+                shape[dims[axis]] = 1
+                if value is None:
+                    wall = u.new_zeros(shape)
+                else:
+                    wall = value
+                    for i in self._wall_axes:
+                        if i > axis:
+                            wall = wall.narrow(dims[i], *self._unknowns[i])
+                    wall = wall.expand(shape)
+                pieces.append((side, wall))
+            for side, wall in pieces:
+                u = torch.cat([wall, u] if side == 0 else [u, wall], dim=dims[axis])
+        return u
 
     def ghost_cells(
         self,
@@ -211,9 +318,11 @@ class UniformGridSolver:
         """Return the ``(low, high)`` ghost cells beyond each axis.
 
         Padding ``u = solver(f, bc)`` with these and applying the 3-point
-        stencil gives back ``f``. ``f`` is only needed with
-        ``ghost_rule="pde"``.
+        stencil gives back ``f``. ``f`` is not used by the standard ghost
+        rule. Only available with ``grid="cell"``.
         """
+        if self.grid != "cell":
+            raise NotImplementedError('ghost_cells is only available for grid="cell"')
         self._check_field(u, "u")
         if f is not None:
             self._check_field(f, "f")
@@ -231,7 +340,7 @@ class UniformGridSolver:
                 if kind == "periodic":
                     pair.append(u.narrow(dim, n - 1 if side == 0 else 0, 1))
                     continue
-                known = self._ghost_known(axis, side, u, f, bc, dims)
+                known = self._ghost_known(axis, side, u, bc, dims)
                 ghost = -edge if kind == "dirichlet" else edge
                 pair.append(ghost if known is None else ghost + known)
             ghosts.append(tuple(pair))
@@ -242,7 +351,6 @@ class UniformGridSolver:
         axis: int,
         side: int,
         like: torch.Tensor,
-        f: torch.Tensor | None,
         bc: tuple[tuple[Boundary, Boundary], ...],
         dims: list[int],
     ) -> torch.Tensor | None:
@@ -251,47 +359,8 @@ class UniformGridSolver:
         h = self.spacings[axis]
         value = self._wall_value(axis, side, like, bc, dims)
         if value is None:
-            known = None
-        else:
-            known = 2 * value if dirichlet else h * value
-        if self.ghost_rule == "pde":
-            if f is None:
-                raise ValueError(
-                    'f is required for wall ghost cells with ghost_rule="pde"'
-                )
-            derivative = self._normal_derivative(axis, side, f, value, dims)
-            correction = (h**2 / 4 if dirichlet else h**3 / 24) * derivative
-            known = correction if known is None else known + correction
-        return known
-
-    def _normal_derivative(
-        self,
-        axis: int,
-        side: int,
-        f: torch.Tensor,
-        value: torch.Tensor | None,
-        dims: list[int],
-    ) -> torch.Tensor:
-        """``∂²u/∂n²`` (Dirichlet) or ``∂³u/∂n³`` (Neumann) at the wall, from the equation.
-
-        Dirichlet: ``a_n ∂²u/∂n² = f - c g - Σ_t a_t ∂²g/∂t²``.
-        Neumann: ``a_n ∂³u/∂n³ = ∂f/∂n - c q - Σ_t a_t ∂²q/∂t²``.
-        """
-        dim, n, h = dims[axis], self.shape[axis], self.spacings[axis]
-        near, far = (0, 1) if side == 0 else (n - 1, n - 2)
-        f_near = f.narrow(dim, near, 1)
-        f_far = f.narrow(dim, far, 1) if n >= 2 else f_near
-        if self.boundary_types[axis][side] == "dirichlet":
-            rhs = 1.5 * f_near - 0.5 * f_far
-        else:
-            rhs = (f_near - f_far) / h
-        if value is not None:
-            rhs = rhs - self.shift * value
-            for t, (a, h) in enumerate(zip(self.coefficients, self.spacings)):
-                if t != axis:
-                    periodic = self.boundary_types[t][0] == "periodic"
-                    rhs = rhs - a * _second_difference(value, dims[t], h, periodic)
-        return rhs / self.coefficients[axis]
+            return None
+        return 2 * value if dirichlet else h * value
 
     def _wall_value(
         self,
@@ -321,7 +390,7 @@ class UniformGridSolver:
         for axis in self._wall_axes:
             dim, h, a = dims[axis], self.spacings[axis], self.coefficients[axis]
             for side in (0, 1):
-                known = self._ghost_known(axis, side, f, f, bc, dims)
+                known = self._ghost_known(axis, side, f, bc, dims)
                 if known is None:
                     continue
                 if rhs is f:
@@ -336,9 +405,10 @@ class UniformGridSolver:
                 f"{name} must be a real floating-point tensor, got {x.dtype}"
             )
         ndim = len(self.shape)
-        if x.ndim < ndim or tuple(x.shape[-ndim:]) != self.shape:
+        if x.ndim < ndim or tuple(x.shape[-ndim:]) != self.field_shape:
             raise ValueError(
-                f"expected {name} of shape (*batch, *{self.shape}), got {tuple(x.shape)}"
+                f"expected {name} of shape (*batch, *{self.field_shape}), "
+                f"got {tuple(x.shape)}"
             )
 
     def _call_bc(self, bc: BC | None) -> tuple[tuple[Boundary, Boundary], ...]:

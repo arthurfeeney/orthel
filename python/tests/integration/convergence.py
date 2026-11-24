@@ -13,15 +13,9 @@ the continuous problem:
 * ``adj-dir``: the directional derivative along a smooth ``δf``, against
   ``∫ z δf``.
 
-All are second order, with two known exceptions:
-
-* With ``ghost_rule="standard"``, the face gradient is first order where two
-  Dirichlet walls meet.
-* With ``ghost_rule="pde"``, ``f`` in the cells next to a wall also sets the
-  wall's normal derivatives, so the gradient in those cells is off by a fixed
-  fraction of ``z``: O(h) next to Dirichlet walls (where ``z`` vanishes) and
-  O(1) next to Neumann walls. Away from the walls and along smooth directions
-  it is still second order.
+All are second order, with one known exception: with
+``ghost_rule="standard"``, the face gradient is first order where two
+Dirichlet walls meet.
 
 Run from the project root (these are not collected by pytest):
 
@@ -38,10 +32,11 @@ import itertools
 import math
 import sys
 from dataclasses import dataclass
+from typing import get_args
 
 import torch
 from orthel.boundary import Dirichlet, Neumann, Periodic
-from orthel.uniform_grid_solver import UniformGridSolver
+from orthel.uniform_grid_solver import GhostRule, UniformGridSolver
 
 DTYPE = torch.float64
 
@@ -113,23 +108,12 @@ class Study:
             isinstance(s, Dirichlet) for pair in self.types for s in pair
         )
 
-    @property
-    def has_neumann(self):
-        return any(isinstance(s, Neumann) for pair in self.types for s in pair)
-
-    @property
-    def has_walls(self):
-        return not all(isinstance(pair[0], Periodic) for pair in self.types)
-
     def expected(self):
         grad = 1.0 if self.ghost_rule == "standard" and self.dirichlet_corner else 2.0
-        adjoint = 2.0
-        if self.ghost_rule == "pde" and self.has_walls:
-            adjoint = 0.0 if self.has_neumann else 1.0
         return {
             "u": 2.0,
             "grad": grad,
-            "adjoint": adjoint,
+            "adjoint": 2.0,
             "adj-int": 2.0,
             "adj-dir": 2.0,
         }
@@ -300,7 +284,7 @@ def build_studies(quick):
         grid = GRIDS[ndim]
         levels = grid["levels"] - (1 if quick else 0)
         for names, (op, (coefficients, shift)), rule in itertools.product(
-            cases, OPERATORS.items(), ("standard", "pde")
+            cases, OPERATORS.items(), get_args(GhostRule)
         ):
             bc = tuple(AXIS_TYPES[n] for n in names)
             studies.append(

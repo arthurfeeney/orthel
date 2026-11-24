@@ -13,7 +13,6 @@ WALL_TYPES = [
     (Neumann(), Dirichlet()),
     (Dirichlet(), Neumann()),
 ]
-GHOSTS = ["standard", "pde"]
 DTYPES = [torch.float64, torch.float32]
 
 
@@ -78,18 +77,17 @@ OPERATOR_CASES = [
 
 
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
-@pytest.mark.parametrize("ghost", GHOSTS)
 @pytest.mark.parametrize(
     "operator_case",
     OPERATOR_CASES,
     ids=lambda oc: f"{_case_id(oc[0])}-a{'_'.join(map(str, oc[1]))}-c{oc[2]}",
 )
-def test_solution_satisfies_stencil_with_its_ghost_cells(operator_case, ghost, dtype):
+def test_solution_satisfies_stencil_with_its_ghost_cells(operator_case, dtype):
     # Padding the solution with ghost_cells and applying the stencil gives back
     # f, with a normwise backward error at rounding level.
     (shape, lengths, bc), coefficients, shift = operator_case
     solver = UniformGridSolver(
-        shape, lengths, bc, coefficients=coefficients, shift=shift, ghost_rule=ghost
+        shape, lengths, bc, coefficients=coefficients, shift=shift
     )
     generator = torch.Generator().manual_seed(1)
     f = torch.randn(2, *shape, dtype=dtype, generator=generator)
@@ -143,19 +141,15 @@ def exact_bc(solver, solution, gradient):
     return bc
 
 
-@pytest.mark.parametrize("ghost", GHOSTS)
 @pytest.mark.parametrize(
     "bc", list(itertools.product(WALL_TYPES, repeat=2)), ids=_bc_id
 )
-def test_quadratic_solution(bc, ghost):
-    # With a constant f, the "pde" ghost cells are exact for a quadratic, so the
-    # discrete solution matches it to rounding. The standard Dirichlet ghost is
-    # off by (h²/4) ∂²u/∂n²; the standard Neumann ghost is exact here because
-    # ∂³u/∂n³ = 0.
+def test_quadratic_solution(bc):
+    # With a constant f, the Neumann ghost is exact for a quadratic because
+    # ∂³u/∂n³ = 0, so the discrete solution matches it to rounding. The
+    # Dirichlet ghost is off by (h²/4) ∂²u/∂n².
     coefficients = (2.0, 0.5)
-    solver = UniformGridSolver(
-        (24, 18), (1.0, 1.5), bc, coefficients=coefficients, ghost_rule=ghost
-    )
+    solver = UniformGridSolver((24, 18), (1.0, 1.5), bc, coefficients=coefficients)
     x, y = torch.meshgrid(*solver.coords(dtype=torch.float64), indexing="ij")
     expected = quadratic(x, y)
     f = torch.full_like(expected, coefficients[0] * 1.0 + coefficients[1] * 1.6)
@@ -166,7 +160,7 @@ def test_quadratic_solution(bc, ghost):
     if has_null_mode(solver):
         error = remove_mean(solver, error)
     error = error.abs().max().item()
-    if ghost == "pde" or not any("dirichlet" in b for b in solver.boundary_types):
+    if not any("dirichlet" in b for b in solver.boundary_types):
         assert error <= 1e-11, f"max error {error:.2e}"
     else:
         assert error > 1e-4, (
@@ -197,15 +191,10 @@ def trig_solution(lengths, bc):
     return solution, gradient, ks
 
 
-def solve_manufactured(bc, coefficients, shift, ghost, n):
+def solve_manufactured(bc, coefficients, shift, n):
     lengths = (1.0, 1.5)
     solver = UniformGridSolver(
-        (n, 3 * n // 2),
-        lengths,
-        bc,
-        coefficients=coefficients,
-        shift=shift,
-        ghost_rule=ghost,
+        (n, 3 * n // 2), lengths, bc, coefficients=coefficients, shift=shift
     )
     solution, gradient, ks = trig_solution(lengths, solver.boundary_types)
     x, y = torch.meshgrid(*solver.coords(dtype=torch.float64), indexing="ij")
@@ -237,17 +226,14 @@ CONVERGENCE_CASES = [
 ]
 
 
-@pytest.mark.parametrize("ghost", GHOSTS)
 @pytest.mark.parametrize(
     "case", CONVERGENCE_CASES, ids=lambda c: f"{_bc_id(c[0])}-c{c[2]}"
 )
-def test_convergence_order(case, ghost):
-    # The solution is second order with either rule. With "pde" ghost cells
-    # the gradient is too, including across the walls and at the corners.
+def test_convergence_order(case):
+    # The solution is second order, and so is the gradient across the walls
+    # except where two Dirichlet walls meet.
     bc, coefficients, shift = case
-    errors = [
-        solve_manufactured(bc, coefficients, shift, ghost, n) for n in (32, 64, 128)
-    ]
+    errors = [solve_manufactured(bc, coefficients, shift, n) for n in (32, 64, 128)]
     u_rates = [math.log2(a[0] / b[0]) for a, b in zip(errors, errors[1:])]
     du_rates = [math.log2(a[1] / b[1]) for a, b in zip(errors, errors[1:])]
 
@@ -256,22 +242,12 @@ def test_convergence_order(case, ghost):
     dirichlet_corner = all(
         any(isinstance(s, Dirichlet) for s in pair) for pair in sides
     )
-    if ghost == "standard" and dirichlet_corner:
-        # Where two Dirichlet walls meet, the standard ghost cells' O(1)
+    if dirichlet_corner:
+        # Where two Dirichlet walls meet, the ghost cells' O(1)
         # truncation errors make the gradient first order.
         assert max(du_rates) < 1.5, f"gradient rates {du_rates}"
     else:
         assert min(du_rates) > 1.9, f"gradient rates {du_rates}"
-
-
-def test_pde_rule_matches_standard_without_walls():
-    standard = UniformGridSolver((16, 12), 1.0, Periodic(), shift=-2.0)
-    pde = UniformGridSolver((16, 12), 1.0, Periodic(), shift=-2.0, ghost_rule="pde")
-    f = torch.randn(
-        16, 12, dtype=torch.float64, generator=torch.Generator().manual_seed(2)
-    )
-
-    torch.testing.assert_close(pde(f), standard(f), rtol=0, atol=0)
 
 
 @pytest.mark.parametrize(
@@ -283,9 +259,9 @@ def test_pde_rule_matches_standard_without_walls():
     ],
     ids=_bc_id,
 )
-def test_pde_ghost_gradcheck(bc):
+def test_boundary_value_gradcheck(bc):
     solver = UniformGridSolver(
-        (6, 5), (1.0, 1.5), bc, coefficients=(2.0, 0.5), shift=-3.0, ghost_rule="pde"
+        (6, 5), (1.0, 1.5), bc, coefficients=(2.0, 0.5), shift=-3.0
     )
     generator = torch.Generator().manual_seed(3)
     f = torch.randn(6, 5, dtype=torch.float64, generator=generator, requires_grad=True)
@@ -305,12 +281,6 @@ def test_pde_ghost_gradcheck(bc):
     assert torch.autograd.gradcheck(solve, (f, *values))
 
 
-def test_pde_ghost_cells_require_f():
-    solver = UniformGridSolver((6, 5), 1.0, (Neumann(), Periodic()), ghost_rule="pde")
-    with pytest.raises(ValueError, match="f is required"):
-        solver.ghost_cells(torch.zeros(6, 5))
-
-
-def test_invalid_dirichlet_ghost_raises():
+def test_invalid_ghost_rule_raises():
     with pytest.raises(ValueError, match="ghost_rule"):
         UniformGridSolver((6, 5), 1.0, Dirichlet(), ghost_rule="quadratic")
