@@ -251,3 +251,41 @@ def test_node_grid_rejects_unsupported_options():
     solver = UniformGridSolver((4,), 1.0, Dirichlet(), grid="node")
     with pytest.raises(NotImplementedError):
         solver.ghost_cells(torch.zeros(5))
+
+
+SMALL_AXES = {
+    "nn": (Neumann(-0.4), Neumann(0.3)),
+    "dd": (Dirichlet(0.7), Dirichlet(-1.2)),
+    "nd": (Neumann(-0.4), Dirichlet(-1.2)),
+    "dn": (Dirichlet(0.7), Neumann(0.3)),
+    "p": Periodic(),
+}
+SMALL_GRIDS = [((n,), (a,)) for n in (1, 2, 3) for a in SMALL_AXES] + [
+    ((ny, nx), (a, b))
+    for ny in (1, 2, 3)
+    for nx in (1, 2, 3)
+    for a in SMALL_AXES
+    for b in SMALL_AXES
+]
+
+
+@pytest.mark.parametrize("shift", [0.0, -1.5])
+@pytest.mark.parametrize(
+    "shape, axes", SMALL_GRIDS, ids=lambda v: "x".join(map(str, v)) if v else ""
+)
+def test_small_grids_satisfy_node_stencil(shape, axes, shift):
+    # One-cell axes are the edge case: with a Neumann and a Dirichlet side the
+    # Neumann ghost reflects onto the Dirichlet wall node itself.
+    bc = tuple(SMALL_AXES[a] for a in axes)
+    solver = UniformGridSolver(shape, 1.3, bc, shift=shift, grid="node")
+    f = _random((2, *solver.field_shape), torch.float64, 20)
+    if _singular(solver):
+        # Pure Neumann/periodic: use a compatible f = A u (every node is unknown).
+        f = node_residual(solver, _random(f.shape, torch.float64, 21), 0 * f)[0]
+
+    u = solver(f)
+
+    residual, wall_error = node_residual(solver, u, f)
+    error = residual.abs().max().item() if residual.numel() else 0.0
+    assert error <= 1e-10 * f.abs().max().item()
+    assert wall_error <= 1e-14

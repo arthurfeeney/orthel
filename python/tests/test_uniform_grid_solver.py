@@ -230,10 +230,22 @@ def test_resonant_shift_raises():
         UniformGridSolver(shape, length, Periodic(), shift=shift)
 
 
-@pytest.mark.parametrize("coefficients", [0.0, -1.0, (1.0, 0.0), (1.0,)])
+@pytest.mark.parametrize(
+    "coefficients",
+    [0.0, -1.0, (1.0, 0.0), (1.0,), float("inf"), (1.0, float("nan"))],
+)
 def test_invalid_coefficients_raise(coefficients):
     with pytest.raises(ValueError, match="coefficients"):
         UniformGridSolver((4, 4), 1.0, Neumann(), coefficients=coefficients)
+
+
+@pytest.mark.parametrize("shift", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("grid", ["cell", "node"])
+def test_non_finite_shift_raises(shift, grid):
+    # NaN would otherwise slip past the singularity check (every comparison
+    # with NaN is False) and give an all-NaN solution.
+    with pytest.raises(ValueError, match="shift must be finite"):
+        UniformGridSolver((4, 4), 1.0, Neumann(), shift=shift, grid=grid)
 
 
 @pytest.mark.parametrize(

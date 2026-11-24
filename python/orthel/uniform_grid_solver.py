@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from typing import Literal, Union
 
@@ -111,9 +112,13 @@ class UniformGridSolver:
         if len(coefficients) != ndim:
             raise ValueError(f"expected {ndim} coefficients, got {len(coefficients)}")
         self.coefficients = tuple(float(a) for a in coefficients)
-        if any(not a > 0 for a in self.coefficients):
-            raise ValueError(f"coefficients must be positive, got {self.coefficients}")
+        if any(not (math.isfinite(a) and a > 0) for a in self.coefficients):
+            raise ValueError(
+                f"coefficients must be positive and finite, got {self.coefficients}"
+            )
         self.shift = float(shift)
+        if not math.isfinite(self.shift):
+            raise ValueError(f"shift must be finite, got {self.shift}")
 
         if ghost_rule not in _GHOST_RULES:
             raise ValueError(
@@ -278,7 +283,12 @@ class UniformGridSolver:
                     continue
                 value = restrict(value, skip=axis)
                 if self.boundary_types[axis][side] == "dirichlet":
-                    known = a / h**2 * value  # the wall node's stencil weight
+                    # The wall node's stencil weight. With a single unknown that
+                    # is a Neumann wall node, its ghost u_1 + 2 h q reflects onto
+                    # this Dirichlet node too, so g enters twice.
+                    other = self.boundary_types[axis][1 - side]
+                    weight = 2 if length == 1 and other == "neumann" else 1
+                    known = weight * a / h**2 * value
                 else:
                     known = 2 * a / h * value  # from the ghost u_1 + 2 h q
                 if not lifted:
