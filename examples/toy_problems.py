@@ -13,7 +13,6 @@ import argparse
 
 import matplotlib.pyplot as plt
 import torch
-
 from orthel.boundary import Dirichlet, Neumann, Periodic
 from orthel.uniform_grid_solver import UniformGridSolver
 

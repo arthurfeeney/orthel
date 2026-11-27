@@ -1,5 +1,8 @@
-"""Use orthel to compute the Helmholtz decomposition of a face-centered grid
+"""Use orthel to compute the Helmholtz decomposition of a velocity field on a MAC grid
 stored in a PyTorch tensor.
+This example uses a velocity field from BubbleML, a dataset of two-phase boiling
+simulations. The divergence is non-zero near the liquid-vapor interface so the
+Helmholtz decompisition has an "interesting" dilational part.
 
 Run from the project root with
 
