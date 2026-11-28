@@ -4,7 +4,7 @@ How each backend's transforms behave is tested in test_transforms.py, which
 runs once per backend (see conftest.py).
 """
 
-import orthel.transforms.dct as D
+import orthel.transforms.dtt as D
 import pytest
 import torch
 from orthel.transforms import (
@@ -18,7 +18,8 @@ from orthel.transforms import (
 
 needs_cpp = pytest.mark.skipif(not _cpp.AVAILABLE, reason="C++ backend not built")
 
-OPS = D.__all__
+# The numbered transforms, which each reach one backend call.
+OPS = [op for op in D.__all__ if op[-1].isdigit()]
 
 
 def random(shape, dtype=torch.float64, seed=0, **kwargs):
@@ -121,6 +122,28 @@ def test_per_call_backend_overrides_global(calls):
     with use_backend("cpp"):
         D.dct2(x, backend="torch")
     assert calls == ["cpp", "torch"]
+
+
+def test_nd_transform_passes_backend_to_each_dim(calls):
+    D.dct(random((4, 5, 6)), 2, (0, 2), backend="torch")
+    assert calls == ["torch", "torch"]
+
+
+def test_dtt_with_torch_backend_never_calls_cpp(calls):
+    D.idtt(random((4, 5, 6)), ("dct1", "dst4"), (2, 0), backend="torch")
+    # Some torch transforms are built on others, so count backends, not calls.
+    assert set(calls) == {"torch"}
+
+
+@needs_cpp
+def test_dtt_passes_backend_to_each_dim(calls):
+    D.idtt(random((4, 5, 6)), ("dct1", "dst4"), (2, 0), backend="cpp")
+    assert calls == ["cpp", "cpp"]
+
+
+def test_nd_transform_checks_backend_with_no_dims():
+    with pytest.raises(ValueError, match="backend must be one of"):
+        D.dct(random((4, 5)), 2, (), backend="fft")
 
 
 @needs_cpp

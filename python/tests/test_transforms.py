@@ -3,23 +3,30 @@ import math
 import pytest
 import scipy.fft
 import torch
-from orthel.transforms.dct import (
+from orthel.transforms.dtt import (
+    KINDS,
+    dct,
     dct1,
     dct2,
     dct3,
     dct4,
+    dst,
     dst1,
     dst2,
     dst3,
     dst4,
+    dtt,
+    idct,
     idct1,
     idct2,
     idct3,
     idct4,
+    idst,
     idst1,
     idst2,
     idst3,
     idst4,
+    idtt,
 )
 
 # (forward, inverse, scipy forward, scipy inverse, scipy type). SciPy's unnormalised
@@ -297,6 +304,277 @@ def test_compiles_without_graph_breaks():
         return idst1(y.sin(), 1) * 2
 
     x = random((8, 9), torch.float64)
+    torch._dynamo.reset()
+    compiled = torch.compile(fn, fullgraph=True, backend="eager")
+    assert_close_to(compiled(x), fn(x))
+
+
+# dct, idct, dst and idst: the type as an argument, along any dimensions.
+
+FAMILIES = {
+    "dct": (dct, idct, scipy.fft.dctn, scipy.fft.idctn),
+    "dst": (dst, idst, scipy.fft.dstn, scipy.fft.idstn),
+}
+TYPES = [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("dim", [0, 1, -1])
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_typed_matches_numbered_on_one_dim(family, type, dim):
+    forward, inverse, *_ = FAMILIES[family]
+    numbered, numbered_inverse, *_ = TRANSFORMS[f"{family}{type}"]
+    x = random((5, 6, 7), torch.float64)
+
+    assert torch.equal(forward(x, type, dim), numbered(x, dim))
+    assert torch.equal(inverse(x, type, dim), numbered_inverse(x, dim))
+
+
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_typed_defaults_to_last_dim(family, type):
+    forward, *_ = FAMILIES[family]
+    numbered, *_ = TRANSFORMS[f"{family}{type}"]
+    x = random((5, 6), torch.float64)
+
+    assert torch.equal(forward(x, type), numbered(x, -1))
+
+
+def test_typed_defaults_to_type_2():
+    x = random((5, 6), torch.float64)
+    assert torch.equal(dct(x), dct2(x))
+    assert torch.equal(idst(x), idst2(x))
+
+
+@pytest.mark.parametrize("dtype", DTYPES, ids=str)
+@pytest.mark.parametrize("dim", [(0, 2), (-1, 1), (0, 1, 2), None])
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_nd_matches_scipy(family, type, dim, dtype):
+    forward, inverse, scipy_forward, scipy_inverse = FAMILIES[family]
+    x = random((9, 16, 17), dtype)
+    axes = None if dim is None else list(dim)
+    ndims = x.ndim if dim is None else len(dim)
+    ref = x.double().numpy()
+
+    expected = scipy_forward(ref, type=type, axes=axes) / 2**ndims
+    expected_inverse = scipy_inverse(ref, type=type, axes=axes) * 2**ndims
+
+    assert_close_to(forward(x, type, dim), torch.from_numpy(expected).to(dtype))
+    assert_close_to(inverse(x, type, dim), torch.from_numpy(expected_inverse).to(dtype))
+
+
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_nd_inverse_round_trip(family, type):
+    forward, inverse, *_ = FAMILIES[family]
+    x = random((6, 8, 9), torch.float64)
+
+    assert_close_to(inverse(forward(x, type, None), type, None), x)
+    assert_close_to(forward(inverse(x, type, (0, 2)), type, (0, 2)), x)
+
+
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_nd_does_not_depend_on_dim_order(family, type):
+    forward, *_ = FAMILIES[family]
+    x = random((6, 8, 9), torch.float64)
+
+    assert_close_to(forward(x, type, (2, 0)), forward(x, type, (0, 2)))
+
+
+def test_nd_equals_numbered_in_turn():
+    x = random((6, 8, 9), torch.float64)
+    assert torch.equal(dst(x, 1, (0, 2)), dst1(dst1(x, 0), 2))
+
+
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_nd_gradcheck(family, type):
+    forward, inverse, *_ = FAMILIES[family]
+    x = random((3, 4, 5), torch.float64, requires_grad=True)
+
+    assert torch.autograd.gradcheck(lambda t: forward(t, type, (0, 2)), (x,))
+    assert torch.autograd.gradcheck(lambda t: inverse(t, type, None), (x,))
+
+
+@pytest.mark.parametrize("dim", [(), []])
+def test_nd_with_no_dims_returns_a_copy(dim):
+    x = random((4, 5), torch.float64)
+    y = dct(x, 2, dim)
+    assert torch.equal(y, x) and y.data_ptr() != x.data_ptr()
+
+
+def test_nd_on_zero_dim_tensor_with_all_dims_is_a_copy():
+    x = torch.tensor(3.0, dtype=torch.float64)
+    assert torch.equal(dct(x, 2, None), x)
+
+
+@pytest.mark.parametrize("type", [0, 5, -1, 2.0, True, "2", None])
+def test_invalid_type_raises(type):
+    x = random((4, 5), torch.float64)
+    for fn in (dct, idct, dst, idst):
+        with pytest.raises(ValueError, match="type must be 1, 2, 3 or 4"):
+            fn(x, type)
+
+
+@pytest.mark.parametrize("dim", [(1, 1), (0, -3), (2, 0, 2)])
+def test_repeated_dims_raise(dim):
+    with pytest.raises(ValueError, match="repeats a dimension"):
+        dct(random((4, 5, 6), torch.float64), 2, dim)
+
+
+@pytest.mark.parametrize("dim", [3, (0, 3), (-4,)])
+def test_nd_dim_out_of_range(dim):
+    with pytest.raises(IndexError, match="out of range"):
+        dst(random((4, 5, 6), torch.float64), 2, dim)
+
+
+def test_nd_dct1_rejects_single_point_on_any_dim():
+    with pytest.raises(ValueError, match="at least 2"):
+        dct(torch.zeros(4, 1, 5, dtype=torch.float64), 1, None)
+    # The single-point dimension is fine when it is not transformed.
+    dct(torch.zeros(4, 1, 5, dtype=torch.float64), 1, (0, 2))
+
+
+def test_nd_compiles_without_graph_breaks():
+    def fn(x):
+        return idst(dct(x, 2, (0, 1)).sin(), 1, None)
+
+    x = random((8, 9, 5), torch.float64)
+    torch._dynamo.reset()
+    compiled = torch.compile(fn, fullgraph=True, backend="eager")
+    assert_close_to(compiled(x), fn(x))
+
+
+# dtt and idtt: the discrete trigonometric transform, one kind per dimension.
+
+SCIPY_BY_FAMILY = {
+    "dct": (scipy.fft.dct, scipy.fft.idct),
+    "dst": (scipy.fft.dst, scipy.fft.idst),
+}
+
+
+def scipy_dtt(x, kinds, dims, inverse=False):
+    """SciPy reference in orthel's scaling: half of SciPy per forward axis."""
+    out = x.double().numpy()
+    for kind, d in zip(kinds, dims):
+        forward, backward = SCIPY_BY_FAMILY[kind[:3]]
+        if inverse:
+            out = 2 * backward(out, type=int(kind[3]), axis=d)
+        else:
+            out = forward(out, type=int(kind[3]), axis=d) / 2
+    return torch.from_numpy(out).to(x.dtype)
+
+
+def test_kinds_are_the_forward_transforms():
+    assert set(KINDS) == set(TRANSFORMS)
+
+
+@pytest.mark.parametrize("dim", [0, -1])
+@pytest.mark.parametrize("kind", KINDS)
+def test_dtt_matches_numbered_on_one_dim(kind, dim):
+    forward, inverse, *_ = TRANSFORMS[kind]
+    x = random((5, 6, 7), torch.float64)
+
+    assert torch.equal(dtt(x, kind, dim), forward(x, dim))
+    assert torch.equal(idtt(x, kind, dim), inverse(x, dim))
+    assert torch.equal(dtt(x, [kind], dim), forward(x, dim))
+
+
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_dtt_with_one_kind_matches_typed(family, type):
+    forward, inverse, *_ = FAMILIES[family]
+    x = random((5, 6, 7), torch.float64)
+
+    assert torch.equal(dtt(x, f"{family}{type}", None), forward(x, type, None))
+    assert torch.equal(idtt(x, f"{family}{type}", (0, 2)), inverse(x, type, (0, 2)))
+
+
+MIXED = [
+    (("dct1", "dst2"), (0, 1)),
+    (("dst1", "dct2", "dst4"), (2, 0, 1)),
+    (("dct3", "dst3"), (-1, 0)),
+    (("dct4", "dst1", "dct2"), None),
+]
+
+
+@pytest.mark.parametrize("dtype", DTYPES, ids=str)
+@pytest.mark.parametrize("kinds, dim", MIXED)
+def test_mixed_dtt_matches_scipy(kinds, dim, dtype):
+    x = random((9, 16, 17), dtype)
+    dims = range(x.ndim) if dim is None else dim
+
+    assert_close_to(dtt(x, kinds, dim), scipy_dtt(x, kinds, dims))
+    assert_close_to(idtt(x, kinds, dim), scipy_dtt(x, kinds, dims, inverse=True))
+
+
+@pytest.mark.parametrize("kinds, dim", MIXED)
+def test_mixed_dtt_round_trip(kinds, dim):
+    x = random((6, 8, 9), torch.float64)
+
+    assert_close_to(idtt(dtt(x, kinds, dim), kinds, dim), x)
+    assert_close_to(dtt(idtt(x, kinds, dim), kinds, dim), x)
+
+
+def test_mixed_dtt_pairs_kinds_with_dims_in_order():
+    x = random((6, 8, 9), torch.float64)
+    assert torch.equal(dtt(x, ("dct1", "dst2"), (2, 0)), dst2(dct1(x, 2), 0))
+
+
+@pytest.mark.parametrize("kinds, dim", MIXED)
+def test_mixed_dtt_gradcheck(kinds, dim):
+    x = random((3, 4, 5), torch.float64, requires_grad=True)
+
+    assert torch.autograd.gradcheck(lambda t: dtt(t, kinds, dim), (x,))
+    assert torch.autograd.gradcheck(lambda t: idtt(t, kinds, dim), (x,))
+
+
+@pytest.mark.parametrize(
+    "kind", ["dct5", "idct2", "DCT2", "dht", "", ("dct2", "fft"), 2, None]
+)
+def test_dtt_invalid_kind_raises(kind):
+    x = random((4, 5), torch.float64)
+    for fn in (dtt, idtt):
+        with pytest.raises((ValueError, TypeError)):
+            fn(x, kind, None if isinstance(kind, tuple) else -1)
+
+
+def test_dtt_invalid_kind_message():
+    with pytest.raises(ValueError, match="kind must be one of dct1, .*dst4"):
+        dtt(random((4, 5), torch.float64), "idct2")
+
+
+@pytest.mark.parametrize(
+    "kinds, dim",
+    [(("dct2", "dst2"), 0), (("dct2",), (0, 1)), (("dct2", "dst2", "dct1"), None)],
+)
+def test_dtt_kinds_must_match_dims(kinds, dim):
+    x = random((4, 5), torch.float64)
+    for fn in (dtt, idtt):
+        with pytest.raises(ValueError, match="transforms for"):
+            fn(x, kinds, dim)
+
+
+def test_dtt_with_no_dims_returns_a_copy():
+    x = random((4, 5), torch.float64)
+    y = dtt(x, (), ())
+    assert torch.equal(y, x) and y.data_ptr() != x.data_ptr()
+
+
+def test_dtt_dct1_rejects_single_point_only_where_used():
+    x = torch.zeros(4, 1, 5, dtype=torch.float64)
+    with pytest.raises(ValueError, match="at least 2"):
+        dtt(x, ("dst2", "dct1"), (0, 1))
+    dtt(x, ("dct1", "dst2"), (0, 1))
+
+
+def test_dtt_compiles_without_graph_breaks():
+    def fn(x):
+        return idtt(dtt(x, ("dct1", "dst2"), (0, 1)).sin(), ("dst1", "dct4"), (2, 0))
+
+    x = random((8, 9, 5), torch.float64)
     torch._dynamo.reset()
     compiled = torch.compile(fn, fullgraph=True, backend="eager")
     assert_close_to(compiled(x), fn(x))

@@ -11,7 +11,7 @@ import torch
 
 from .boundary import AxisBC, Boundary, parse_bc
 from .eigenvalues import second_difference_eigenvalues
-from .transforms.dct import (
+from .transforms.dtt import (
     dct1,
     dct2,
     dct3,

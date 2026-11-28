@@ -35,7 +35,7 @@ def second_difference_eigenvalues(
     They are ordered to match the transform that diagonalises the operator:
     ``torch.fft.fft`` on periodic axes (``torch.fft.rfft`` if
     ``half_spectrum``), and the matching DCT/DST in
-    :mod:`orthel.transforms.dct` on wall axes. On nodes those are DST-I
+    :mod:`orthel.transforms.dtt` on wall axes. On nodes those are DST-I
     (Dirichlet/Dirichlet), DCT-I (Neumann/Neumann), DCT-III
     (Neumann/Dirichlet) and DST-III (Dirichlet/Neumann).
     """

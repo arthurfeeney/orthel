@@ -1,7 +1,7 @@
 // Fast DCT/DST without an FFT: real radix-2 recursions down to odd sizes,
 // which are summed directly.
 //
-// Five kernels cover all sixteen transforms in orthel.transforms.dct:
+// Five kernels cover all sixteen transforms in orthel.transforms.dtt:
 //
 //   dct1   X_k = x_0/2 + (-1)^k x_{n-1}/2 + sum_{0<j<n-1} x_j cos(pi k j / (n-1))
 //   dst1   X_k = sum_j x_j sin(pi (k+1)(j+1) / (n+1))

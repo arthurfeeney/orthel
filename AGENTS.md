@@ -11,7 +11,7 @@ PyTorch autograd support, and work with `torch.compile` where practical.
 ## Repository layout
 
 - `python/orthel/`: importable `orthel` package.
-- `python/orthel/transforms/`: orthogonal transforms. `dct.py` is the public
+- `python/orthel/transforms/`: orthogonal transforms. `dtt.py` is the public
   API; it dispatches to the `"torch"` backend (`_torch.py`, built on
   `torch.fft`) or the `"cpp"` backend (`_cpp.py`), selected in `backend.py`.
 - `cpp/`: the C++ backend, built by `CMakeLists.txt` into
