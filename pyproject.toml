@@ -12,12 +12,21 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.8.6,<0.9.0"]
-build-backend = "uv_build"
+requires = ["scikit-build-core>=0.10", "nanobind>=2.4"]
+build-backend = "scikit_build_core.build"
 
-[tool.uv.build-backend]
-module-name = "orthel"
-module-root = "python"
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["python/orthel"]
+cmake.build-type = "Release"
+
+[tool.uv]
+# Rebuild the C++ extension when its sources change.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "cpp/**" },
+]
 
 [dependency-groups]
 dev = [

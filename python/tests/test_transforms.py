@@ -35,7 +35,8 @@ TRANSFORMS = {
     "dct4": (dct4, idct4, scipy.fft.dct, scipy.fft.idct, 4),
     "dst4": (dst4, idst4, scipy.fft.dst, scipy.fft.idst, 4),
 }
-SIZES = [1, 2, 3, 8, 17, 64, 257]
+# Includes powers of two, node-grid sizes 2^k +- 1, composite and prime sizes.
+SIZES = [1, 2, 3, 8, 17, 64, 96, 100, 257, 1023, 1024, 1025, 1031, 4096]
 DTYPES = [torch.float64, torch.float32]
 
 
@@ -229,3 +230,73 @@ def test_type3_is_transpose_of_type2(pair, n):
     weight[0 if pair[0] == "dct2" else -1] = 0.5
 
     assert_close_to(type3(eye, dim=0), type2(eye, dim=0).T * weight)
+
+
+@pytest.mark.parametrize("name", TRANSFORMS)
+def test_non_contiguous_input(name):
+    forward, inverse, scipy_fn, scipy_inverse, kind = TRANSFORMS[name]
+    base = random((12, 20), torch.float64)
+    for x in (base.t(), base[:, ::2], base[1:, 3:].t()):
+        expected = torch.from_numpy(scipy_fn(x.numpy(), type=kind, axis=0) / 2)
+        assert_close_to(forward(x, 0).movedim(0, -1), expected.movedim(0, -1))
+        assert_close_to(inverse(forward(x, 0), 0), x)
+
+
+@pytest.mark.parametrize("name", TRANSFORMS)
+def test_empty_batch(name):
+    forward, inverse, *_ = TRANSFORMS[name]
+    x = torch.zeros(0, 6, dtype=torch.float64)
+    assert forward(x).shape == inverse(x).shape == (0, 6)
+
+
+@pytest.mark.parametrize(
+    "name, n",
+    [(name, 65536) for name in ("dct2", "dst2", "dct3", "dct4", "dst4")]
+    + [("dct1", 65537), ("dst1", 65535)],
+)
+def test_float32_error_stays_near_eps_at_large_sizes(name, n):
+    forward, inverse, scipy_fn, scipy_inverse, kind = TRANSFORMS[name]
+    x = random((2, n), torch.float64)
+    expected = scipy_fn(x.numpy(), type=kind, axis=-1) / 2
+    expected_inverse = 2 * scipy_inverse(x.numpy(), type=kind, axis=-1)
+
+    for fn, reference in ((forward, expected), (inverse, expected_inverse)):
+        reference = torch.from_numpy(reference)
+        actual = fn(x.float()).double()
+        relative = (actual - reference).norm() / reference.norm()
+        assert relative < 4 * torch.finfo(torch.float32).eps
+
+
+@pytest.mark.parametrize("name", ["dct2", "dst1", "dct4"])
+def test_thread_count_does_not_change_results(name):
+    forward, *_ = TRANSFORMS[name]
+    x = random((64, 4095 if name == "dst1" else 4096), torch.float64)
+    previous = torch.get_num_threads()
+    try:
+        torch.set_num_threads(1)
+        one = forward(x)
+        torch.set_num_threads(4)
+        four = forward(x)
+    finally:
+        torch.set_num_threads(previous)
+    assert torch.equal(one, four)
+
+
+@pytest.mark.parametrize("name", TRANSFORMS)
+def test_gradgradcheck(name):
+    forward, inverse, *_ = TRANSFORMS[name]
+    x = random((3, 6, 5), torch.float64, requires_grad=True)
+
+    assert torch.autograd.gradgradcheck(lambda t: forward(t, 1), (x,))
+    assert torch.autograd.gradgradcheck(lambda t: inverse(t, 1), (x,))
+
+
+def test_compiles_without_graph_breaks():
+    def fn(x):
+        y = dct2(x, 0)
+        return idst1(y.sin(), 1) * 2
+
+    x = random((8, 9), torch.float64)
+    torch._dynamo.reset()
+    compiled = torch.compile(fn, fullgraph=True, backend="eager")
+    assert_close_to(compiled(x), fn(x))

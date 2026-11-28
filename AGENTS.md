@@ -11,10 +11,17 @@ PyTorch autograd support, and work with `torch.compile` where practical.
 ## Repository layout
 
 - `python/orthel/`: importable `orthel` package.
-- `python/orthel/transforms/`: orthogonal transform implementations.
+- `python/orthel/transforms/`: orthogonal transforms. `dct.py` is the public
+  API; it dispatches to the `"torch"` backend (`_torch.py`, built on
+  `torch.fft`) or the `"cpp"` backend (`_cpp.py`), selected in `backend.py`.
+- `cpp/`: the C++ backend, built by `CMakeLists.txt` into
+  `orthel.transforms._r2r`. `module.cpp` holds the nanobind bindings;
+  `cpp/cpu/` holds CPU-only code, such as the DCT/DST kernels (`r2r.hpp`,
+  no FFT).
 - `python/tests/`: unit tests collected by pytest.
 - `python/tests/integration/`: grid-convergence studies not collected by pytest.
-- `pyproject.toml`: uv build and pytest configuration.
+- `pyproject.toml`: build (scikit-build-core + nanobind) and pytest
+  configuration.
 - `.github/workflows/tests.yml`: CI test workflow.
 
 The package source root is `python/`; `python/orthel` is the `orthel` module.
@@ -30,6 +37,11 @@ uv run ruff format --check .
 uv run ruff check .
 uv build
 ```
+
+`uv sync` and `uv run` rebuild the C++ extension when files in `cpp/`,
+`CMakeLists.txt` or `pyproject.toml` change; a C++ compiler and CMake are
+needed. New C++ transforms must match the `"torch"` backend, and the
+transform tests run against every available backend.
 
 Unit tests live in `python/tests/`. Integration convergence studies are excluded
 from pytest and run directly:

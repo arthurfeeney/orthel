@@ -266,7 +266,9 @@ def test_divergence_of_gradient_inverts_solver(name, dtype):
     facex, facey = mac_gradient(phi, solver.spacings, bc)
     result = mac_divergence(facex, facey, solver.spacings, bc)
 
-    scale = 1e3 if dtype == torch.float32 else 1e2
+    # Round-off from the solve, amplified by the 1/h^2 stencil: up to a few
+    # hundred eps on these small grids, depending on the transform backend.
+    scale = 1e3
     tolerance = scale * torch.finfo(dtype).eps * f.abs().max().item()
     torch.testing.assert_close(result, f, rtol=0, atol=tolerance)
 
