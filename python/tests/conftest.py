@@ -1,5 +1,5 @@
 import pytest
-from orthel.transforms import available_backends, use_backend
+from orthel.transforms.backend import available_backends, use_backend
 
 
 @pytest.fixture(autouse=True, params=available_backends())

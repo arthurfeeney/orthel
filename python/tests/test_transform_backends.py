@@ -7,9 +7,8 @@ runs once per backend (see conftest.py).
 import orthel.transforms.dtt as D
 import pytest
 import torch
-from orthel.transforms import (
-    _cpp,
-    _torch,
+from orthel.transforms import _cpp, _torch
+from orthel.transforms.backend import (
     available_backends,
     get_backend,
     set_backend,
