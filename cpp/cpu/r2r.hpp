@@ -10,7 +10,9 @@
 //   dct4   X_k = sum_j x_j cos(pi (2k+1)(2j+1) / 4n)
 //
 // The rest are these with flipped or sign-alternated inputs and outputs and
-// a scale factor (see `recipe`). Even sizes split in half:
+// a scale factor (see `recipe`). The recipe also doubles every forward
+// transform and halves every inverse, giving SciPy's unnormalised
+// ("backward") scaling. Even sizes split in half:
 //
 //   dct2(2m)    dct2(m) of x_j + x_{n-1-j} gives the even outputs and
 //               dct4(m) of x_j - x_{n-1-j} the odd ones
@@ -412,6 +414,8 @@ inline Recipe recipe(const std::string& op, std::size_t n, bool transpose) {
   if (op == "idct4") scale = 2 / dn;
   if (op == "dst4" || op == "idst4") pre = kFlip, post = kAlt;
   if (op == "idst4") scale = 2 / dn;
+  // The kernels compute half of SciPy's unnormalised transforms.
+  scale *= op[0] == 'i' ? 0.5 : 2.0;
 
   Recipe r;
   r.kernel = kernel_of(op);

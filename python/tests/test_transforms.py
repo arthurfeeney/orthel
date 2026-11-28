@@ -29,9 +29,8 @@ from orthel.transforms.dtt import (
     idtt,
 )
 
-# (forward, inverse, scipy forward, scipy inverse, scipy type). SciPy's unnormalised
-# transforms carry an extra factor of 2 relative to the definitions here, so
-# the inverses here are twice SciPy's inverses.
+# (forward, inverse, scipy forward, scipy inverse, scipy type). The default
+# scaling is SciPy's unnormalised ("backward") one.
 TRANSFORMS = {
     "dct1": (dct1, idct1, scipy.fft.dct, scipy.fft.idct, 1),
     "dst1": (dst1, idst1, scipy.fft.dst, scipy.fft.idst, 1),
@@ -76,9 +75,9 @@ def test_forward_matches_scipy(name, n, dtype):
     forward, _, scipy_fn, _, kind = TRANSFORMS[name]
     x = random((3, n), dtype)
 
-    expected = torch.from_numpy(
-        scipy_fn(x.double().numpy(), type=kind, axis=-1) / 2
-    ).to(dtype)
+    expected = torch.from_numpy(scipy_fn(x.double().numpy(), type=kind, axis=-1)).to(
+        dtype
+    )
 
     assert_close_to(forward(x), expected)
 
@@ -92,7 +91,7 @@ def test_inverse_matches_scipy(name, n, dtype):
     x = random((3, n), dtype)
 
     expected = torch.from_numpy(
-        2 * scipy_inverse(x.double().numpy(), type=kind, axis=-1)
+        scipy_inverse(x.double().numpy(), type=kind, axis=-1)
     ).to(dtype)
 
     assert_close_to(inverse(x), expected)
@@ -114,7 +113,8 @@ def test_inverse_round_trip(name, n, dtype):
 @pytest.mark.parametrize("name", TRANSFORMS)
 def test_matches_definition(name, n):
     _skip_undefined(name, n)
-    # Independent of SciPy: build the transform matrix from the docstring formula.
+    # Independent of SciPy: build the transform matrix from its definition, up
+    # to the factor of 2 in SciPy's unnormalised convention.
     forward, *_ = TRANSFORMS[name]
     k = torch.arange(n, dtype=torch.float64)[:, None]
     j = torch.arange(n, dtype=torch.float64)[None, :]
@@ -133,7 +133,7 @@ def test_matches_definition(name, n):
     }
     x = random((4, n), torch.float64)
 
-    assert_close_to(forward(x), x @ matrices[name].T)
+    assert_close_to(forward(x), x @ (2 * matrices[name]).T)
 
 
 @pytest.mark.parametrize("name", TRANSFORMS)
@@ -188,10 +188,8 @@ def test_dim_matches_scipy_axis(name, dim):
     forward, inverse, scipy_fn, scipy_inverse, kind = TRANSFORMS[name]
     x = random((5, 6, 7), torch.float64)
 
-    expected = torch.from_numpy(scipy_fn(x.numpy(), type=kind, axis=dim) / 2)
-    expected_inverse = torch.from_numpy(
-        2 * scipy_inverse(x.numpy(), type=kind, axis=dim)
-    )
+    expected = torch.from_numpy(scipy_fn(x.numpy(), type=kind, axis=dim))
+    expected_inverse = torch.from_numpy(scipy_inverse(x.numpy(), type=kind, axis=dim))
 
     assert_close_to(forward(x, dim=dim).movedim(dim, -1), expected.movedim(dim, -1))
     assert_close_to(
@@ -244,7 +242,7 @@ def test_non_contiguous_input(name):
     forward, inverse, scipy_fn, scipy_inverse, kind = TRANSFORMS[name]
     base = random((12, 20), torch.float64)
     for x in (base.t(), base[:, ::2], base[1:, 3:].t()):
-        expected = torch.from_numpy(scipy_fn(x.numpy(), type=kind, axis=0) / 2)
+        expected = torch.from_numpy(scipy_fn(x.numpy(), type=kind, axis=0))
         assert_close_to(forward(x, 0).movedim(0, -1), expected.movedim(0, -1))
         assert_close_to(inverse(forward(x, 0), 0), x)
 
@@ -264,8 +262,8 @@ def test_empty_batch(name):
 def test_float32_error_stays_near_eps_at_large_sizes(name, n):
     forward, inverse, scipy_fn, scipy_inverse, kind = TRANSFORMS[name]
     x = random((2, n), torch.float64)
-    expected = scipy_fn(x.numpy(), type=kind, axis=-1) / 2
-    expected_inverse = 2 * scipy_inverse(x.numpy(), type=kind, axis=-1)
+    expected = scipy_fn(x.numpy(), type=kind, axis=-1)
+    expected_inverse = scipy_inverse(x.numpy(), type=kind, axis=-1)
 
     for fn, reference in ((forward, expected), (inverse, expected_inverse)):
         reference = torch.from_numpy(reference)
@@ -354,11 +352,10 @@ def test_nd_matches_scipy(family, type, dim, dtype):
     forward, inverse, scipy_forward, scipy_inverse = FAMILIES[family]
     x = random((9, 16, 17), dtype)
     axes = None if dim is None else list(dim)
-    ndims = x.ndim if dim is None else len(dim)
     ref = x.double().numpy()
 
-    expected = scipy_forward(ref, type=type, axes=axes) / 2**ndims
-    expected_inverse = scipy_inverse(ref, type=type, axes=axes) * 2**ndims
+    expected = scipy_forward(ref, type=type, axes=axes)
+    expected_inverse = scipy_inverse(ref, type=type, axes=axes)
 
     assert_close_to(forward(x, type, dim), torch.from_numpy(expected).to(dtype))
     assert_close_to(inverse(x, type, dim), torch.from_numpy(expected_inverse).to(dtype))
@@ -455,15 +452,13 @@ SCIPY_BY_FAMILY = {
 }
 
 
-def scipy_dtt(x, kinds, dims, inverse=False):
-    """SciPy reference in orthel's scaling: half of SciPy per forward axis."""
+def scipy_dtt(x, kinds, dims, inverse=False, norm="backward"):
+    """SciPy reference: the 1D SciPy transforms applied axis by axis."""
     out = x.double().numpy()
     for kind, d in zip(kinds, dims):
         forward, backward = SCIPY_BY_FAMILY[kind[:3]]
-        if inverse:
-            out = 2 * backward(out, type=int(kind[3]), axis=d)
-        else:
-            out = forward(out, type=int(kind[3]), axis=d) / 2
+        fn = backward if inverse else forward
+        out = fn(out, type=int(kind[3]), axis=d, norm=norm)
     return torch.from_numpy(out).to(x.dtype)
 
 
@@ -573,6 +568,127 @@ def test_dtt_dct1_rejects_single_point_only_where_used():
 def test_dtt_compiles_without_graph_breaks():
     def fn(x):
         return idtt(dtt(x, ("dct1", "dst2"), (0, 1)).sin(), ("dst1", "dct4"), (2, 0))
+
+    x = random((8, 9, 5), torch.float64)
+    torch._dynamo.reset()
+    compiled = torch.compile(fn, fullgraph=True, backend="eager")
+    assert_close_to(compiled(x), fn(x))
+
+
+# norm: SciPy's three scalings.
+
+NORMS = ["backward", "ortho", "forward"]
+
+
+@pytest.mark.parametrize("norm", NORMS)
+@pytest.mark.parametrize("n", [1, 2, 3, 8, 17, 64, 100])
+@pytest.mark.parametrize("kind", KINDS)
+def test_norm_matches_scipy(kind, n, norm):
+    _skip_undefined(kind, n)
+    x = random((3, n), torch.float64)
+
+    assert_close_to(dtt(x, kind, norm=norm), scipy_dtt(x, [kind], [1], norm=norm))
+    assert_close_to(
+        idtt(x, kind, norm=norm), scipy_dtt(x, [kind], [1], inverse=True, norm=norm)
+    )
+
+
+@pytest.mark.parametrize("dtype", DTYPES, ids=str)
+@pytest.mark.parametrize("norm", ["ortho", "forward"])
+@pytest.mark.parametrize("type", TYPES)
+@pytest.mark.parametrize("family", FAMILIES)
+def test_nd_norm_matches_scipy(family, type, norm, dtype):
+    forward, inverse, scipy_forward, scipy_inverse = FAMILIES[family]
+    x = random((9, 16, 17), dtype)
+    ref = x.double().numpy()
+
+    expected = scipy_forward(ref, type=type, axes=[0, 2], norm=norm)
+    expected_inverse = scipy_inverse(ref, type=type, axes=[0, 2], norm=norm)
+
+    assert_close_to(
+        forward(x, type, (0, 2), norm=norm), torch.from_numpy(expected).to(dtype)
+    )
+    assert_close_to(
+        inverse(x, type, (0, 2), norm=norm),
+        torch.from_numpy(expected_inverse).to(dtype),
+    )
+
+
+@pytest.mark.parametrize("norm", NORMS)
+@pytest.mark.parametrize("kinds, dim", MIXED)
+def test_mixed_norm_matches_scipy(kinds, dim, norm):
+    x = random((9, 16, 17), torch.float64)
+    dims = range(x.ndim) if dim is None else dim
+
+    assert_close_to(dtt(x, kinds, dim, norm=norm), scipy_dtt(x, kinds, dims, norm=norm))
+    assert_close_to(
+        idtt(x, kinds, dim, norm=norm),
+        scipy_dtt(x, kinds, dims, inverse=True, norm=norm),
+    )
+
+
+@pytest.mark.parametrize("norm", NORMS)
+@pytest.mark.parametrize("kinds, dim", MIXED)
+def test_norm_round_trip(kinds, dim, norm):
+    x = random((6, 8, 9), torch.float64)
+
+    assert_close_to(idtt(dtt(x, kinds, dim, norm=norm), kinds, dim, norm=norm), x)
+
+
+@pytest.mark.parametrize("n", [2, 3, 8, 17])
+@pytest.mark.parametrize("kind", KINDS)
+def test_ortho_is_orthonormal(kind, n):
+    eye = torch.eye(n, dtype=torch.float64)
+    matrix = dtt(eye, kind, 0, norm="ortho")
+
+    assert_close_to(matrix @ matrix.T, eye)
+    assert_close_to(idtt(eye, kind, 0, norm="ortho"), matrix.T)
+
+
+@pytest.mark.parametrize("norm", ["ortho", "forward"])
+@pytest.mark.parametrize("kinds, dim", MIXED)
+def test_norm_gradcheck(kinds, dim, norm):
+    x = random((3, 4, 5), torch.float64, requires_grad=True)
+
+    assert torch.autograd.gradcheck(lambda t: dtt(t, kinds, dim, norm=norm), (x,))
+    assert torch.autograd.gradcheck(lambda t: idtt(t, kinds, dim, norm=norm), (x,))
+
+
+def test_norm_none_is_backward():
+    x = random((5, 6), torch.float64)
+    assert torch.equal(dtt(x, "dct2", norm=None), dtt(x, "dct2"))
+    assert torch.equal(dct(x, norm=None), dct2(x))
+
+
+@pytest.mark.parametrize("norm", ["ORTHO", "orthonormal", "", 1])
+def test_invalid_norm_raises(norm):
+    x = random((4, 5), torch.float64)
+    for fn in (dct, idct, dst, idst):
+        with pytest.raises(ValueError, match="norm must be one of"):
+            fn(x, 2, norm=norm)
+    for fn in (dtt, idtt):
+        with pytest.raises(ValueError, match="norm must be one of"):
+            fn(x, "dct2", norm=norm)
+
+
+@pytest.mark.parametrize("name", [n for n in TRANSFORMS if n != "dct1"])
+def test_empty_transform_dim(name):
+    forward, inverse, *_ = TRANSFORMS[name]
+    x = torch.zeros(3, 0, dtype=torch.float64)
+    assert forward(x).shape == (3, 0) and inverse(x).shape == (3, 0)
+
+
+@pytest.mark.parametrize("norm", NORMS)
+def test_norm_on_empty_dim(norm):
+    x = torch.zeros(3, 0, dtype=torch.float64)
+    assert dtt(x, "dct2", norm=norm).shape == (3, 0)
+    assert idtt(x, "dst1", norm=norm).shape == (3, 0)
+
+
+def test_norm_compiles_without_graph_breaks():
+    def fn(x):
+        y = dtt(x, ("dct1", "dst2"), (0, 1), norm="ortho")
+        return idtt(y.sin(), ("dct3", "dst4"), (0, 2), norm="forward")
 
     x = random((8, 9, 5), torch.float64)
     torch._dynamo.reset()
