@@ -50,7 +50,22 @@ def face_shape(
     facey: torch.Tensor,
     bc: AxisBC | Sequence[AxisBC] | None = None,
 ) -> tuple[int, int]:
-    """Validate a pair of face fields and return the cell grid shape ``(ny, nx)``."""
+    """Validate a pair of face fields and return the cell grid shape.
+
+    Args:
+        facex: x-normal face values, in the face layout of the module docstring.
+        facey: y-normal face values, likewise.
+        bc: ``(y_bc, x_bc)``, which only selects periodic or wall layouts. If
+            omitted, both axes are walls.
+
+    Returns:
+        The number of cells ``(ny, nx)``.
+
+    Raises:
+        ValueError: If either field has fewer than two dimensions, the face
+            shapes do not match ``bc``'s layout or each other's batch shape,
+            or the grid has no cells.
+    """
     if facex.ndim < 2 or facey.ndim < 2:
         raise ValueError("facex and facey must include two spatial dimensions")
     periodic_y, periodic_x = _periodic_axes(bc)
@@ -86,11 +101,21 @@ def mac_divergence(
     spacings: float | Sequence[float],
     bc: AxisBC | Sequence[AxisBC] | None = None,
 ) -> torch.Tensor:
-    """Return ``∂ux/∂x + ∂uy/∂y`` at cell centres.
+    """Return the divergence ``∂ux/∂x + ∂uy/∂y`` at cell centres.
 
-    ``facex`` and ``facey`` follow the face layout in the module docstring.
-    ``spacings`` is ``(dy, dx)``. ``bc`` (``(y_bc, x_bc)``) only selects
-    periodic or wall layouts; if omitted, both axes are walls.
+    Args:
+        facex: x-normal face values, in the face layout of the module docstring.
+        facey: y-normal face values, likewise.
+        spacings: ``(dy, dx)``, or one spacing for both axes.
+        bc: ``(y_bc, x_bc)``, which only selects periodic or wall layouts. If
+            omitted, both axes are walls.
+
+    Returns:
+        The divergence, with shape ``(*batch, ny, nx)``.
+
+    Raises:
+        ValueError: If the face shapes do not match ``bc``'s layout (see
+            :func:`face_shape`) or the spacings are not positive and finite.
     """
     dy, dx = _parse_spacings(spacings)
     face_shape(facex, facey, bc)
@@ -124,9 +149,19 @@ def mac_curl(
     node at ``(j + 1) dy, (i + 1) dx`` on wall axes and ``j dy, i dx`` on
     periodic axes.
 
-    ``facex`` and ``facey`` follow the face layout in the module docstring.
-    ``spacings`` is ``(dy, dx)`` and ``bc`` is ``(y_bc, x_bc)``; if omitted,
-    both axes are walls.
+    Args:
+        facex: x-normal face values, in the face layout of the module docstring.
+        facey: y-normal face values, likewise.
+        spacings: ``(dy, dx)``, or one spacing for both axes.
+        bc: ``(y_bc, x_bc)``, which only selects periodic or wall layouts. If
+            omitted, both axes are walls.
+
+    Returns:
+        The vorticity at the nodes away from walls, with the shape above.
+
+    Raises:
+        ValueError: If the face shapes do not match ``bc``'s layout (see
+            :func:`face_shape`) or the spacings are not positive and finite.
     """
     dy, dx = _parse_spacings(spacings)
     face_shape(facex, facey, bc)
@@ -197,14 +232,25 @@ def mac_gradient(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Map a cell-centred field to face-normal gradients ``(∂φ/∂x, ∂φ/∂y)``.
 
-    ``grid`` has shape ``(*batch, ny, nx)``. Returns ``(facex, facey)`` in the
-    face layout of the module docstring.
-
-    ``bc`` follows :func:`orthel.boundary.parse_bc`: ``(y_bc, x_bc)``. Wall
-    faces use the same ghost cells as :class:`orthel.UniformGridSolver` with
+    Wall faces use the same ghost cells as
+    :class:`orthel.uniform_grid_solver.UniformGridSolver` with
     ``ghost_rule="standard"``, including the boundary values: ``Dirichlet(g)``
     gives ``±2(φ_edge - g)/h`` and ``Neumann(q)`` gives ``∓q`` on the low and
     high faces. So ``mac_divergence(mac_gradient(solver(f)))`` reproduces ``f``.
+
+    Args:
+        grid: Cell-centred values with shape ``(*batch, ny, nx)``.
+        spacings: ``(dy, dx)``, or one spacing for both axes.
+        bc: ``(y_bc, x_bc)``, in any form :func:`orthel.boundary.parse_bc`
+            accepts. Boundary values must broadcast to the face.
+
+    Returns:
+        ``(facex, facey)`` in the face layout of the module docstring.
+
+    Raises:
+        ValueError: If ``grid`` has fewer than two dimensions, the spacings
+            are not positive and finite, or ``bc`` is invalid.
+        TypeError: If ``bc`` contains something other than boundary objects.
     """
     if grid.ndim < 2:
         raise ValueError("grid must include two spatial dimensions")
@@ -236,12 +282,25 @@ def mac_vel_from_streamfunction(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Map a node streamfunction to face-normal velocities ``(∂ψ/∂y, -∂ψ/∂x)``.
 
-    ``streamfunction`` lives on the grid nodes (see the module docstring): its
-    shape is ``(*batch, ny + 1, nx + 1)`` for two wall axes, with ``ny`` /
-    ``nx`` in place of ``ny + 1`` / ``nx + 1`` along periodic axes. Returns
-    ``(facex, facey)`` in the matching face layout. The result is exactly
-    divergence free, and its flux through a wall face is the change of ``ψ``
-    along that face, so ``ψ`` constant on a wall means no flow through it.
+    The result is exactly divergence free, and its flux through a wall face is
+    the change of ``ψ`` along that face, so ``ψ`` constant on a wall means no
+    flow through it.
+
+    Args:
+        streamfunction: Values on the grid nodes (see the module docstring),
+            with shape ``(*batch, ny + 1, nx + 1)`` for two wall axes and
+            ``ny`` / ``nx`` in place of ``ny + 1`` / ``nx + 1`` along
+            periodic axes.
+        spacings: ``(dy, dx)``, or one spacing for both axes.
+        bc: ``(y_bc, x_bc)``, which only selects periodic or wall layouts.
+
+    Returns:
+        ``(facex, facey)`` in the matching face layout.
+
+    Raises:
+        ValueError: If ``streamfunction`` has fewer than two dimensions or too
+            few nodes along an axis, or the spacings are not positive and
+            finite.
     """
     if streamfunction.ndim < 2:
         raise ValueError("streamfunction must include two spatial dimensions")

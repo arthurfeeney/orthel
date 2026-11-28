@@ -1,3 +1,5 @@
+"""Boundary conditions for the sides of a uniform grid."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -41,10 +43,21 @@ _BOUNDARIES = (Periodic, Dirichlet, Neumann)
 def parse_bc(
     bc: AxisBC | Sequence[AxisBC], ndim: int
 ) -> tuple[tuple[Boundary, Boundary], ...]:
-    """convert AxisBC ``bc`` to a ``(low, high)`` pair of boundaries per axis.
+    """Convert ``bc`` to a ``(low, high)`` pair of boundaries per axis.
 
-    ``bc`` is one entry for every axis or a sequence of entries, with one entry per axis.
-    An entry is a single boundary for both sides or a pair of boundaries ``(low, high)``.
+    Args:
+        bc: One entry for every axis, or a sequence with one entry per axis.
+            An entry is a single boundary for both sides or a pair of
+            boundaries ``(low, high)``.
+        ndim: The number of axes.
+
+    Returns:
+        One ``(low, high)`` pair of boundaries per axis.
+
+    Raises:
+        TypeError: If an entry is not a boundary object (a string, say).
+        ValueError: If the number of entries is not ``ndim``, or an axis mixes
+            :class:`Periodic` with a wall.
     """
     if isinstance(bc, str):
         raise TypeError(f"expected a boundary object such as Periodic(), got {bc!r}")

@@ -1,3 +1,5 @@
+"""Eigenvalues of the 1D second difference, matched to its diagonalising transform."""
+
 from __future__ import annotations
 
 import math
@@ -38,6 +40,25 @@ def second_difference_eigenvalues(
     :mod:`orthel.transforms.dtt` on wall axes. On nodes those are DST-I
     (Dirichlet/Dirichlet), DCT-I (Neumann/Neumann), DCT-III
     (Neumann/Dirichlet) and DST-III (Dirichlet/Neumann).
+
+    Args:
+        n: The number of cells.
+        spacing: The grid spacing ``h``.
+        bc: The ``(low, high)`` boundary types: both ``"periodic"``, or each
+            ``"neumann"`` or ``"dirichlet"``.
+        half_spectrum: On a periodic axis, return only the ``n // 2 + 1``
+            eigenvalues matching ``torch.fft.rfft``.
+        grid: ``"cell"`` for unknowns at cell centres, ``"node"`` for unknowns
+            at cell corners.
+        dtype: The dtype of the result.
+        device: The device of the result.
+
+    Returns:
+        A 1D tensor of eigenvalues, in the order described above.
+
+    Raises:
+        ValueError: If ``grid`` is not ``"cell"`` or ``"node"``, ``bc`` mixes
+            periodic with a wall, or ``half_spectrum`` is set for a wall axis.
     """
     if grid not in ("cell", "node"):
         raise ValueError(f'grid must be "cell" or "node", got {grid!r}')

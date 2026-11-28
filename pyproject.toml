@@ -54,4 +54,16 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.ruff.lint]
-select = ["F", "I"]
+select = ["F", "I", "D"]
+# Constructor arguments are documented under Args: in the class docstring.
+ignore = ["D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Docstring rules apply to the package source only.
+"python/tests/**" = ["D"]
+"examples/**" = ["D"]
+# Package __init__.py files are kept empty.
+"**/__init__.py" = ["D104"]

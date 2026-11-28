@@ -1,3 +1,5 @@
+"""Helmholtz decomposition of 2D MAC-grid velocities."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

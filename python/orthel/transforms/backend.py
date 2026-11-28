@@ -55,6 +55,18 @@ def use_backend(name: Backend) -> Iterator[None]:
 
 
 def check_backend(name: str) -> Backend:
+    """Check that ``name`` is a backend that can run here.
+
+    Args:
+        name: The backend's name.
+
+    Returns:
+        ``name``, as a :data:`Backend`.
+
+    Raises:
+        ValueError: If ``name`` is not a backend.
+        RuntimeError: If ``name`` is ``"cpp"`` and the extension is not built.
+    """
     if name not in _BACKENDS:
         raise ValueError(f"backend must be one of {_BACKENDS}, got {name!r}")
     if name == "cpp" and not _cpp.AVAILABLE:

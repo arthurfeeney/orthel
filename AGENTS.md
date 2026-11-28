@@ -43,6 +43,10 @@ uv build
 needed. New C++ transforms must match the `"torch"` backend, and the
 transform tests run against every available backend.
 
+Docstrings in `python/orthel/` use Google style (`Args:`, `Returns:`,
+`Raises:`), checked by ruff's pydocstyle rules with the Google convention.
+Tests and examples are exempt.
+
 Unit tests live in `python/tests/`. Integration convergence studies are excluded
 from pytest and run directly:
 

@@ -318,8 +318,7 @@ class UniformGridSolver:
         return rhs
 
     def _apply_inverse(self, x: torch.Tensor, dims: list[int]) -> torch.Tensor:
-        """Steps 2-4: transform every axis, divide by the eigenvalues, and
-        transform back."""
+        """Steps 2-4: transform, divide by the eigenvalues, transform back."""
         inv_eigenvalues = self._inv_eigenvalues_for(x)
         periodic_dims = [dims[i] for i in self._periodic_axes]
         for i in self._wall_axes:
